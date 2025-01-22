@@ -5,7 +5,63 @@ use sdl3_sys::{
     self as sdl3,
     error::SDL_GetError,
     gpu::{
-        SDL_AcquireGPUCommandBuffer, SDL_BeginGPUCopyPass, SDL_BeginGPURenderPass, SDL_BindGPUGraphicsPipeline, SDL_BindGPUVertexBuffers, SDL_ClaimWindowForGPUDevice, SDL_CreateGPUBuffer, SDL_CreateGPUDevice, SDL_CreateGPUGraphicsPipeline, SDL_CreateGPUShader, SDL_CreateGPUTransferBuffer, SDL_DrawGPUPrimitives, SDL_EndGPUCopyPass, SDL_EndGPURenderPass, SDL_GPUBuffer, SDL_GPUBufferBinding, SDL_GPUBufferCreateInfo, SDL_GPUBufferRegion, SDL_GPUColorTargetDescription, SDL_GPUColorTargetInfo, SDL_GPUDevice, SDL_GPUGraphicsPipeline, SDL_GPUGraphicsPipelineCreateInfo, SDL_GPUGraphicsPipelineTargetInfo, SDL_GPUShader, SDL_GPUShaderCreateInfo, SDL_GPUShaderStage, SDL_GPUTexture, SDL_GPUTransferBufferCreateInfo, SDL_GPUTransferBufferLocation, SDL_GPUVertexAttribute, SDL_GPUVertexBufferDescription, SDL_GPUVertexInputState, SDL_GetGPUShaderFormats, SDL_GetGPUSwapchainTextureFormat, SDL_MapGPUTransferBuffer, SDL_ReleaseGPUShader, SDL_ReleaseGPUTransferBuffer, SDL_SubmitGPUCommandBuffer, SDL_UnmapGPUTransferBuffer, SDL_UploadToGPUBuffer, SDL_WaitAndAcquireGPUSwapchainTexture, SDL_GPU_BUFFERUSAGE_VERTEX, SDL_GPU_LOADOP_CLEAR, SDL_GPU_PRIMITIVETYPE_TRIANGLELIST, SDL_GPU_SHADERFORMAT_DXIL, SDL_GPU_SHADERFORMAT_INVALID, SDL_GPU_SHADERFORMAT_MSL, SDL_GPU_SHADERFORMAT_SPIRV, SDL_GPU_SHADERSTAGE_FRAGMENT, SDL_GPU_SHADERSTAGE_VERTEX, SDL_GPU_STOREOP_STORE, SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, SDL_GPU_VERTEXINPUTRATE_VERTEX
+        SDL_AcquireGPUCommandBuffer,
+        SDL_BeginGPUCopyPass,
+        SDL_BeginGPURenderPass,
+        SDL_BindGPUGraphicsPipeline,
+        SDL_BindGPUVertexBuffers,
+        SDL_ClaimWindowForGPUDevice,
+        SDL_CreateGPUBuffer,
+        SDL_CreateGPUDevice,
+        SDL_CreateGPUGraphicsPipeline,
+        SDL_CreateGPUShader,
+        SDL_CreateGPUTransferBuffer,
+        SDL_DrawGPUPrimitives,
+        SDL_EndGPUCopyPass,
+        SDL_EndGPURenderPass,
+        SDL_GPUBuffer,
+        SDL_GPUBufferBinding,
+        SDL_GPUBufferCreateInfo,
+        SDL_GPUBufferRegion,
+        SDL_GPUColorTargetDescription,
+        SDL_GPUColorTargetInfo,
+        SDL_GPUDevice,
+        SDL_GPUGraphicsPipeline,
+        SDL_GPUGraphicsPipelineCreateInfo,
+        SDL_GPUGraphicsPipelineTargetInfo,
+        SDL_GPUShader,
+        SDL_GPUShaderCreateInfo,
+        SDL_GPUShaderStage,
+        SDL_GPUTexture,
+        SDL_GPUTransferBufferCreateInfo,
+        SDL_GPUTransferBufferLocation,
+        SDL_GPUVertexAttribute,
+        SDL_GPUVertexBufferDescription,
+        SDL_GPUVertexInputState,
+        SDL_GetGPUShaderFormats,
+        SDL_GetGPUSwapchainTextureFormat,
+        SDL_MapGPUTransferBuffer,
+        SDL_ReleaseGPUShader,
+        SDL_ReleaseGPUTransferBuffer,
+        SDL_SubmitGPUCommandBuffer,
+        SDL_UnmapGPUTransferBuffer,
+        SDL_UploadToGPUBuffer,
+        SDL_WaitAndAcquireGPUSwapchainTexture,
+        SDL_GPU_BUFFERUSAGE_VERTEX,
+        SDL_GPU_LOADOP_CLEAR,
+        SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        SDL_GPU_SHADERFORMAT_DXIL,
+        SDL_GPU_SHADERFORMAT_INVALID,
+        SDL_GPU_SHADERFORMAT_MSL,
+        SDL_GPU_SHADERFORMAT_SPIRV,
+        SDL_GPU_SHADERSTAGE_FRAGMENT,
+        SDL_GPU_SHADERSTAGE_VERTEX,
+        SDL_GPU_STOREOP_STORE,
+        SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+        SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+        SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4,
+        SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
+        SDL_GPU_VERTEXINPUTRATE_VERTEX,
     },
     iostream::SDL_LoadFile,
     pixels::SDL_FColor,
@@ -39,12 +95,14 @@ pub struct Position {
     pub y: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -52,9 +110,22 @@ pub struct Color {
     pub a: u8,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct PositionColorVertex {
     pub position: Vec3,
     pub color: Color,
+}
+
+#[derive(Debug, Clone)]
+pub struct Shape {
+    pub vertices: Vec<PositionColorVertex>,
+    pub indices: Vec<u32>,
+}
+
+impl Shape {
+    pub fn size(&self) -> u32 {
+        (size_of::<PositionColorVertex>() * self.indices.len()) as u32
+    }
 }
 
 impl GpuApi {
@@ -121,16 +192,12 @@ impl GpuApi {
                 );
 
                 SDL_BindGPUGraphicsPipeline(render_pass, PIPELINE);
-                SDL_BindGPUVertexBuffers(
-                    render_pass,
-                    0,
-                    &(SDL_GPUBufferBinding {
-                        buffer: VERTEX_BUFFER,
-                        offset: 0,
-                    }),
-                    1
-                );
-                SDL_DrawGPUPrimitives(render_pass, 3, 1, 0, 0);
+                let bindings = SDL_GPUBufferBinding {
+                    buffer: VERTEX_BUFFER,
+                    offset: 0,
+                };
+                SDL_BindGPUVertexBuffers(render_pass, 0, &bindings, 1);
+                SDL_DrawGPUPrimitives(render_pass, 6, 1, 0, 0);
 
                 SDL_EndGPURenderPass(render_pass);
             }
@@ -310,20 +377,45 @@ impl GpuApi {
             SDL_ReleaseGPUShader(self.gpu_device, vertex_shader);
             SDL_ReleaseGPUShader(self.gpu_device, fragment_shader);
 
-            VERTEX_BUFFER = SDL_CreateGPUBuffer(
-                self.gpu_device,
-                &(SDL_GPUBufferCreateInfo {
-                    usage: SDL_GPU_BUFFERUSAGE_VERTEX,
-                    size: 3 * (size_of::<PositionColorVertex>() as u32),
-                    ..Default::default()
-                })
-            );
+            let shape = Shape {
+                vertices: vec![
+                    PositionColorVertex {
+                        position: Vec3 { x: -1.0, y: -1.0, z: 0.0 },
+                        color: Color { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    PositionColorVertex {
+                        position: Vec3 { x: -1.0, y: 0.0, z: 0.0 },
+                        color: Color { r: 0, g: 255, b: 0, a: 255 },
+                    },
+                    PositionColorVertex {
+                        position: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
+                        color: Color { r: 0, g: 0, b: 255, a: 255 },
+                    },
+                    PositionColorVertex {
+                        position: Vec3 { x: 0.0, y: -1.0, z: 0.0 },
+                        color: Color { r: 255, g: 0, b: 0, a: 255 },
+                    }
+                ],
+                indices: vec![0, 1, 2, 0, 2, 3],
+            };
+
+            let size = shape.size();
+            /* println!("Size of PositionColorVertex: {:?}", size_of::<PositionColorVertex>());
+            println!("Size: {:?}", size); */
+
+            let vertex_buffer_create_info = SDL_GPUBufferCreateInfo {
+                usage: SDL_GPU_BUFFERUSAGE_VERTEX,
+                size: size,
+                ..Default::default()
+            };
+
+            VERTEX_BUFFER = SDL_CreateGPUBuffer(self.gpu_device, &vertex_buffer_create_info);
 
             let transfer_buffer = SDL_CreateGPUTransferBuffer(
                 self.gpu_device,
                 &(SDL_GPUTransferBufferCreateInfo {
                     usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-                    size: 3 * (size_of::<PositionColorVertex>() as u32),
+                    size: vertex_buffer_create_info.size,
                     ..Default::default()
                 })
             );
@@ -334,20 +426,14 @@ impl GpuApi {
                 false
             ) as *mut _;
 
-            let transfer_data_slice = std::slice::from_raw_parts_mut(transfer_data, 3);
+            let transfer_data_slice = std::slice::from_raw_parts_mut(
+                transfer_data,
+                shape.indices.len()
+            );
 
-            transfer_data_slice[0] = PositionColorVertex {
-                position: Vec3 { x: -1., y: -1.0, z: 0.0 },
-                color: Color { r: 255, g: 0, b: 0, a: 255 },
-            };
-            transfer_data_slice[1] = PositionColorVertex {
-                position: Vec3 { x: 1.0, y: -1.0, z: 0.0 },
-                color: Color { r: 0, g: 255, b: 0, a: 255 },
-            };
-            transfer_data_slice[2] = PositionColorVertex {
-                position: Vec3 { x: 0.0, y: 1.0, z: 0.0 },
-                color: Color { r: 0, g: 0, b: 255, a: 255 },
-            };
+            for (i, vertex) in shape.indices.iter().enumerate() {
+                transfer_data_slice[i] = shape.vertices[*vertex as usize];
+            }
 
             SDL_UnmapGPUTransferBuffer(self.gpu_device, transfer_buffer);
 
@@ -363,7 +449,7 @@ impl GpuApi {
                 &(SDL_GPUBufferRegion {
                     buffer: VERTEX_BUFFER,
                     offset: 0,
-                    size: 3 * (size_of::<PositionColorVertex>() as u32),
+                    size: vertex_buffer_create_info.size,
                 }),
                 false
             );
@@ -494,7 +580,6 @@ fn main() -> Result<(), &'static str> {
         });
 
     //let start_time = std::time::Instant::now();
-    println!("Starting loop");
 
     'running: loop {
         while unsafe { sdl3::events::SDL_PollEvent(&mut event) } {

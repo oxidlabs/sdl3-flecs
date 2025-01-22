@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sdl3-sys = { version = "0.3.0", features = ["build-from-source"] }
+sdl3-sys = { version = "0.4.0+SDL3-3.2.0", features = ["build-from-source"] }
 flecs_ecs = { version = "0.1.1" }

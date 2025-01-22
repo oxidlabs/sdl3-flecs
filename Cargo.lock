@@ -376,15 +376,15 @@ checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 
 [[package]]
 name = "sdl3-src"
-version = "3.1.10-prerelease-0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d00534df2a8e9d2e5a52bb0d68873679d32e107f36afa8aa1e23a316242ce71e"
+checksum = "bdb74c53278866f2287257b04fcfa2010e249d03ea82b5dc659fb6ec65a20e99"
 
 [[package]]
 name = "sdl3-sys"
-version = "0.3.0+SDL3-prerelease-3.1.10"
+version = "0.4.0+SDL3-3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36f89e5dda1a14d196c22becc9c7733c41ab10ecea0b0dc1e7a1f6e339cc013a"
+checksum = "cb0d323f86cf34c363ec472ec7c5e88285d8c9315a027a63b51280b1d27b3778"
 dependencies = [
  "cmake",
  "rpkg-config",
