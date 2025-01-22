@@ -399,9 +399,15 @@ impl GpuApi {
                 indices: vec![0, 1, 2, 0, 2, 3],
             };
 
+            self.draw_vertex(shape);
+
+            Ok(())
+        }
+    }
+
+    pub fn draw_vertex(&self, shape: Shape) {
+        unsafe {
             let size = shape.size();
-            /* println!("Size of PositionColorVertex: {:?}", size_of::<PositionColorVertex>());
-            println!("Size: {:?}", size); */
 
             let vertex_buffer_create_info = SDL_GPUBufferCreateInfo {
                 usage: SDL_GPU_BUFFERUSAGE_VERTEX,
@@ -457,8 +463,6 @@ impl GpuApi {
             SDL_EndGPUCopyPass(copy_pass);
             SDL_SubmitGPUCommandBuffer(upload_cmd_buf);
             SDL_ReleaseGPUTransferBuffer(self.gpu_device, transfer_buffer);
-
-            Ok(())
         }
     }
     /* pub fn create_shader_pipeline(&self) -> Result<(), String> {
@@ -582,7 +586,7 @@ fn main() -> Result<(), &'static str> {
     //let start_time = std::time::Instant::now();
 
     'running: loop {
-        while unsafe { sdl3::events::SDL_PollEvent(&mut event) } {
+        while (unsafe { sdl3::events::SDL_PollEvent(&mut event) }) {
             match sdl3::events::SDL_EventType(unsafe { event.r#type }) {
                 sdl3::events::SDL_EventType::QUIT => {
                     break 'running;
