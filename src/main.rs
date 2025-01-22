@@ -4,87 +4,12 @@ use flecs_ecs::{ core::{ SystemAPI, TermBuilderImpl, World }, macros::{ system, 
 use sdl3_sys::{
     self as sdl3,
     error::SDL_GetError,
-    gpu::{
-        SDL_AcquireGPUCommandBuffer,
-        SDL_BeginGPUCopyPass,
-        SDL_BeginGPURenderPass,
-        SDL_BindGPUGraphicsPipeline,
-        SDL_BindGPUVertexBuffers,
-        SDL_ClaimWindowForGPUDevice,
-        SDL_CreateGPUBuffer,
-        SDL_CreateGPUDevice,
-        SDL_CreateGPUGraphicsPipeline,
-        SDL_CreateGPUShader,
-        SDL_CreateGPUTransferBuffer,
-        SDL_DrawGPUPrimitives,
-        SDL_EndGPUCopyPass,
-        SDL_EndGPURenderPass,
-        SDL_GPUBuffer,
-        SDL_GPUBufferBinding,
-        SDL_GPUBufferCreateInfo,
-        SDL_GPUBufferRegion,
-        SDL_GPUColorTargetDescription,
-        SDL_GPUColorTargetInfo,
-        SDL_GPUDevice,
-        SDL_GPUGraphicsPipeline,
-        SDL_GPUGraphicsPipelineCreateInfo,
-        SDL_GPUGraphicsPipelineTargetInfo,
-        SDL_GPUShader,
-        SDL_GPUShaderCreateInfo,
-        SDL_GPUShaderStage,
-        SDL_GPUTexture,
-        SDL_GPUTransferBufferCreateInfo,
-        SDL_GPUTransferBufferLocation,
-        SDL_GPUVertexAttribute,
-        SDL_GPUVertexBufferDescription,
-        SDL_GPUVertexInputState,
-        SDL_GetGPUShaderFormats,
-        SDL_GetGPUSwapchainTextureFormat,
-        SDL_MapGPUTransferBuffer,
-        SDL_ReleaseGPUShader,
-        SDL_ReleaseGPUTransferBuffer,
-        SDL_SubmitGPUCommandBuffer,
-        SDL_UnmapGPUTransferBuffer,
-        SDL_UploadToGPUBuffer,
-        SDL_WaitAndAcquireGPUSwapchainTexture,
-        SDL_GPU_BUFFERUSAGE_VERTEX,
-        SDL_GPU_LOADOP_CLEAR,
-        SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
-        SDL_GPU_SHADERFORMAT_DXIL,
-        SDL_GPU_SHADERFORMAT_INVALID,
-        SDL_GPU_SHADERFORMAT_MSL,
-        SDL_GPU_SHADERFORMAT_SPIRV,
-        SDL_GPU_SHADERSTAGE_FRAGMENT,
-        SDL_GPU_SHADERSTAGE_VERTEX,
-        SDL_GPU_STOREOP_STORE,
-        SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-        SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4,
-        SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
-        SDL_GPU_VERTEXINPUTRATE_VERTEX,
-    },
+    gpu::*,
     iostream::SDL_LoadFile,
     pixels::SDL_FColor,
-    properties::{
-        SDL_CreateProperties,
-        SDL_PropertiesID,
-        SDL_SetBooleanProperty,
-        SDL_SetNumberProperty,
-        SDL_SetStringProperty,
-    },
+    properties::*,
     stdinc::{ SDL_free, SDL_strstr },
-    video::{
-        SDL_CreateWindowWithProperties,
-        SDL_Window,
-        SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER,
-        SDL_PROP_WINDOW_CREATE_RESIZABLE_BOOLEAN,
-        SDL_PROP_WINDOW_CREATE_TITLE_STRING,
-        SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER,
-        SDL_PROP_WINDOW_CREATE_X_NUMBER,
-        SDL_PROP_WINDOW_CREATE_Y_NUMBER,
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOW_RESIZABLE,
-    },
+    video::*,
 };
 
 /* static mut LINE_PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut();
@@ -141,6 +66,11 @@ pub struct Shape {
     pub indices: Vec<u32>,
 }
 
+#[derive(Component)]
+pub struct RenderEvent {
+    pub render_pass: *mut SDL_GPURenderPass,
+}
+
 impl Shape {
     pub fn size(&self) -> u32 {
         (size_of::<PositionColorVertex>() * self.indices.len()) as u32
@@ -169,7 +99,7 @@ impl GpuApi {
         }
     }
 
-    pub fn draw(&self, window: *mut SDL_Window) {
+    pub fn draw(&self, window: *mut SDL_Window, world: &World) {
         unsafe {
             let cmd_buf = SDL_AcquireGPUCommandBuffer(self.gpu_device);
             if cmd_buf == null_mut() {
@@ -219,6 +149,11 @@ impl GpuApi {
                     SDL_BindGPUVertexBuffers(render_pass, 0, &bindings, 1);
                     SDL_DrawGPUPrimitives(render_pass, VERTEX_COUNT, 1, 0, 0);
                 }
+
+                let render_event = RenderEvent { render_pass };
+
+                world.event().entity(world.entity()).emit(&render_event);
+
                 SDL_EndGPURenderPass(render_pass);
             }
 
@@ -279,7 +214,7 @@ impl GpuApi {
             } else if (backend_formats & SDL_GPU_SHADERFORMAT_MSL) != 0 {
                 full_path = CString::new(
                     format!(
-                        "{}/Shaders/Compiled/SPIRV/{}.msl",
+                        "{}/Shaders/Compiled/MSL/{}.msl",
                         base_path.to_str().unwrap(),
                         file_name.to_str().unwrap()
                     )
@@ -291,7 +226,7 @@ impl GpuApi {
             } else if (backend_formats & SDL_GPU_SHADERFORMAT_DXIL) != 0 {
                 full_path = CString::new(
                     format!(
-                        "{}/Shaders/Compiled/SPIRV/{}.dxil",
+                        "{}/Shaders/Compiled/DXIL/{}.dxil",
                         base_path.to_str().unwrap(),
                         file_name.to_str().unwrap()
                     )
@@ -378,17 +313,6 @@ impl GpuApi {
                 ..Default::default()
             };
 
-            /* pipeline_create_info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
-            FILL_PIPELINE = SDL_CreateGPUGraphicsPipeline(self.gpu_device, &pipeline_create_info);
-            if FILL_PIPELINE == null_mut() {
-                return Err("Failed to create fill graphics pipeline".to_owned());
-            }
-
-            pipeline_create_info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_LINE;
-            LINE_PIPELINE = SDL_CreateGPUGraphicsPipeline(self.gpu_device, &pipeline_create_info);
-            if LINE_PIPELINE == null_mut() {
-                return Err("Failed to create line graphics pipeline".to_owned());
-            } */
             PIPELINE = SDL_CreateGPUGraphicsPipeline(self.gpu_device, &pipeline_create_info);
             if PIPELINE == null_mut() {
                 return Err("Failed to create graphics pipeline".to_owned());
@@ -396,30 +320,6 @@ impl GpuApi {
 
             SDL_ReleaseGPUShader(self.gpu_device, vertex_shader);
             SDL_ReleaseGPUShader(self.gpu_device, fragment_shader);
-
-            /* let shape = Shape {
-                vertices: vec![
-                    PositionColorVertex {
-                        position: Vec3 { x: -1.0, y: -1.0, z: 0.0 },
-                        color: Color { r: 255, g: 0, b: 0, a: 255 },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 { x: -1.0, y: 0.0, z: 0.0 },
-                        color: Color { r: 0, g: 255, b: 0, a: 255 },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
-                        color: Color { r: 0, g: 0, b: 255, a: 255 },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 { x: 0.0, y: -1.0, z: 0.0 },
-                        color: Color { r: 255, g: 0, b: 0, a: 255 },
-                    }
-                ],
-                indices: vec![0, 1, 2, 0, 2, 3],
-            };
-
-            self.draw_vertex(vec![shape]); */
 
             Ok(())
         }
@@ -468,23 +368,6 @@ impl GpuApi {
             }
 
             VERTEX_COUNT = offset as u32;
-
-            /* let transfer_data: *mut PositionColorVertex = SDL_MapGPUTransferBuffer(
-                self.gpu_device,
-                transfer_buffer,
-                false
-            ) as *mut _;
-
-            let transfer_data_slice = std::slice::from_raw_parts_mut(
-                transfer_data,
-                shape.indices.len()
-            );
-
-            for (i, vertex) in shape.indices.iter().enumerate() {
-                transfer_data_slice[i] = shape.vertices[*vertex as usize];
-            }
-
-            SDL_UnmapGPUTransferBuffer(self.gpu_device, transfer_buffer); */
 
             let upload_cmd_buf = SDL_AcquireGPUCommandBuffer(self.gpu_device);
             let copy_pass = SDL_BeginGPUCopyPass(upload_cmd_buf);
@@ -587,7 +470,7 @@ fn main() -> Result<(), &'static str> {
     system!("draw_screen", world, &GpuApi, &Window)
         .singleton()
         .each_iter(|_it, _, (gpu_api, window)| {
-            gpu_api.draw(window.0);
+            gpu_api.draw(window.0, &_it.world());
             /* let world = _it.world(); */
 
             /* world.entity().get::<(&Position, &Rect)>(|(position, rect)| {
@@ -641,7 +524,7 @@ fn main() -> Result<(), &'static str> {
     //let start_time = std::time::Instant::now();
 
     'running: loop {
-        while (unsafe { sdl3::events::SDL_PollEvent(&mut event) }) {
+        while unsafe { sdl3::events::SDL_PollEvent(&mut event) } {
             match sdl3::events::SDL_EventType(unsafe { event.r#type }) {
                 sdl3::events::SDL_EventType::QUIT => {
                     break 'running;
@@ -660,8 +543,8 @@ fn main() -> Result<(), &'static str> {
             gpu_api.set_color((red / 255.0, green / 255.0, blue / 255.0));
         }); */
 
-        std::thread::sleep(std::time::Duration::from_millis(10));
         world.progress();
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
     unsafe {
