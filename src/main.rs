@@ -1,6 +1,12 @@
-use std::{ ffi::{ c_char, CStr, CString }, ptr::null_mut };
+use std::{
+    ffi::{CStr, CString, c_char},
+    ptr::null_mut,
+};
 
-use flecs_ecs::{ core::{ SystemAPI, TermBuilderImpl, World }, macros::{ system, Component } };
+use flecs_ecs::{
+    core::{QueryBuilderImpl, SystemAPI, TermBuilderImpl, World, flecs},
+    macros::{Component, observer, system},
+};
 use sdl3_sys::{
     self as sdl3,
     error::SDL_GetError,
@@ -8,7 +14,7 @@ use sdl3_sys::{
     iostream::SDL_LoadFile,
     pixels::SDL_FColor,
     properties::*,
-    stdinc::{ SDL_free, SDL_strstr },
+    stdinc::{SDL_free, SDL_strstr},
     video::*,
 };
 
@@ -108,17 +114,18 @@ impl GpuApi {
             }
 
             let mut swapchain_texture: *mut SDL_GPUTexture = null_mut();
-            if
-                !SDL_WaitAndAcquireGPUSwapchainTexture(
-                    cmd_buf,
-                    window,
-                    &mut swapchain_texture,
-                    null_mut(),
-                    null_mut()
-                )
-            {
+            if !SDL_WaitAndAcquireGPUSwapchainTexture(
+                cmd_buf,
+                window,
+                &mut swapchain_texture,
+                null_mut(),
+                null_mut(),
+            ) {
                 let error = CStr::from_ptr(SDL_GetError()).to_str().unwrap();
-                panic!("Failed to wait and acquire GPU swapchain texture: {:?}", error);
+                panic!(
+                    "Failed to wait and acquire GPU swapchain texture: {:?}",
+                    error
+                );
             }
 
             if swapchain_texture != null_mut() {
@@ -133,12 +140,8 @@ impl GpuApi {
                 color_target_info.load_op = SDL_GPU_LOADOP_CLEAR;
                 color_target_info.store_op = SDL_GPU_STOREOP_STORE;
 
-                let render_pass = SDL_BeginGPURenderPass(
-                    cmd_buf,
-                    &color_target_info,
-                    1,
-                    null_mut()
-                );
+                let render_pass =
+                    SDL_BeginGPURenderPass(cmd_buf, &color_target_info, 1, null_mut());
 
                 SDL_BindGPUGraphicsPipeline(render_pass, PIPELINE);
                 if VERTEX_BUFFER != null_mut() {
@@ -172,22 +175,17 @@ impl GpuApi {
         sampler_count: u32,
         uniform_buffer_count: u32,
         storage_buffer_count: u32,
-        storage_text_count: u32
+        storage_text_count: u32,
     ) -> Result<*mut SDL_GPUShader, String> {
         let file_name = CString::new(file_name).unwrap();
         unsafe {
-            let base_path = CString::new(
-                env!("CARGO_MANIFEST_DIR")
-            ).unwrap(); /* SDL_GetBasePath(); */
+            let base_path = CString::new(env!("CARGO_MANIFEST_DIR")).unwrap(); /* SDL_GetBasePath(); */
             let mut stage = SDL_GPUShaderStage::default();
-            if
-                SDL_strstr(file_name.as_ptr(), CString::new(".vert").unwrap().as_ptr()) !=
-                null_mut()
+            if SDL_strstr(file_name.as_ptr(), CString::new(".vert").unwrap().as_ptr()) != null_mut()
             {
                 stage = SDL_GPU_SHADERSTAGE_VERTEX;
-            } else if
-                SDL_strstr(file_name.as_ptr(), CString::new(".frag").unwrap().as_ptr()) !=
-                null_mut()
+            } else if SDL_strstr(file_name.as_ptr(), CString::new(".frag").unwrap().as_ptr())
+                != null_mut()
             {
                 stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
             } else {
@@ -200,39 +198,33 @@ impl GpuApi {
             let mut entrypoint = CString::new("").unwrap();
 
             if (backend_formats & SDL_GPU_SHADERFORMAT_SPIRV) != 0 {
-                full_path = CString::new(
-                    format!(
-                        "{}/Shaders/Compiled/SPIRV/{}.spv",
-                        base_path.to_str().unwrap(),
-                        file_name.to_str().unwrap()
-                    )
-                )
-                    .unwrap()
-                    .into_raw();
+                full_path = CString::new(format!(
+                    "{}/Shaders/Compiled/SPIRV/{}.spv",
+                    base_path.to_str().unwrap(),
+                    file_name.to_str().unwrap()
+                ))
+                .unwrap()
+                .into_raw();
                 format = SDL_GPU_SHADERFORMAT_SPIRV;
                 entrypoint = CString::new("main").unwrap();
             } else if (backend_formats & SDL_GPU_SHADERFORMAT_MSL) != 0 {
-                full_path = CString::new(
-                    format!(
-                        "{}/Shaders/Compiled/MSL/{}.msl",
-                        base_path.to_str().unwrap(),
-                        file_name.to_str().unwrap()
-                    )
-                )
-                    .unwrap()
-                    .into_raw();
+                full_path = CString::new(format!(
+                    "{}/Shaders/Compiled/MSL/{}.msl",
+                    base_path.to_str().unwrap(),
+                    file_name.to_str().unwrap()
+                ))
+                .unwrap()
+                .into_raw();
                 format = SDL_GPU_SHADERFORMAT_MSL;
                 entrypoint = CString::new("main0").unwrap();
             } else if (backend_formats & SDL_GPU_SHADERFORMAT_DXIL) != 0 {
-                full_path = CString::new(
-                    format!(
-                        "{}/Shaders/Compiled/DXIL/{}.dxil",
-                        base_path.to_str().unwrap(),
-                        file_name.to_str().unwrap()
-                    )
-                )
-                    .unwrap()
-                    .into_raw();
+                full_path = CString::new(format!(
+                    "{}/Shaders/Compiled/DXIL/{}.dxil",
+                    base_path.to_str().unwrap(),
+                    file_name.to_str().unwrap()
+                ))
+                .unwrap()
+                .into_raw();
                 format = SDL_GPU_SHADERFORMAT_DXIL;
                 entrypoint = CString::new("main").unwrap();
             } else {
@@ -305,7 +297,8 @@ impl GpuApi {
                             location: 1,
                             offset: (size_of::<f32>() * 3) as u32,
                         },
-                    ].as_ptr(),
+                    ]
+                    .as_ptr(),
                 },
                 primitive_type: SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
                 vertex_shader,
@@ -342,21 +335,16 @@ impl GpuApi {
                     usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
                     size: vertex_buffer_create_info.size,
                     ..Default::default()
-                })
+                }),
             );
 
             let mut offset = 0;
             for shape in shapes.iter() {
-                let transfer_data: *mut PositionColorVertex = SDL_MapGPUTransferBuffer(
-                    self.gpu_device,
-                    transfer_buffer,
-                    false
-                ) as *mut _;
+                let transfer_data: *mut PositionColorVertex =
+                    SDL_MapGPUTransferBuffer(self.gpu_device, transfer_buffer, false) as *mut _;
 
-                let transfer_data_slice = std::slice::from_raw_parts_mut(
-                    transfer_data,
-                    shape.indices.len() + offset
-                );
+                let transfer_data_slice =
+                    std::slice::from_raw_parts_mut(transfer_data, shape.indices.len() + offset);
 
                 for (i, vertex) in shape.indices.iter().enumerate() {
                     transfer_data_slice[i + offset] = shape.vertices[*vertex as usize];
@@ -383,7 +371,7 @@ impl GpuApi {
                     offset: 0,
                     size: vertex_buffer_create_info.size,
                 }),
-                false
+                false,
             );
 
             SDL_EndGPUCopyPass(copy_pass);
@@ -401,17 +389,17 @@ impl Window {
             SDL_SetStringProperty(
                 props,
                 SDL_PROP_WINDOW_CREATE_TITLE_STRING,
-                CString::new(title).unwrap().as_ptr()
+                CString::new(title).unwrap().as_ptr(),
             );
             SDL_SetNumberProperty(
                 props,
                 SDL_PROP_WINDOW_CREATE_X_NUMBER,
-                SDL_WINDOWPOS_CENTERED as i64
+                SDL_WINDOWPOS_CENTERED as i64,
             );
             SDL_SetNumberProperty(
                 props,
                 SDL_PROP_WINDOW_CREATE_Y_NUMBER,
-                SDL_WINDOWPOS_CENTERED as i64
+                SDL_WINDOWPOS_CENTERED as i64,
             );
             SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, width);
             SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, height);
@@ -432,13 +420,11 @@ fn main() -> Result<(), &'static str> {
     let window_title = "Example window";
 
     unsafe {
-        if
-            !sdl3::init::SDL_SetAppMetadata(
-                CString::new(window_title).unwrap().as_ptr(),
-                CString::new("1.0").unwrap().as_ptr(),
-                CString::new("example window with flecs").unwrap().as_ptr()
-            )
-        {
+        if !sdl3::init::SDL_SetAppMetadata(
+            CString::new(window_title).unwrap().as_ptr(),
+            CString::new("1.0").unwrap().as_ptr(),
+            CString::new("example window with flecs").unwrap().as_ptr(),
+        ) {
             return Err("Failed to set app metadata");
         }
 
@@ -458,14 +444,29 @@ fn main() -> Result<(), &'static str> {
     //renderer.create_shader_pipeline().unwrap();
 
     /* let _bob = world
-        .entity_named("bob")
-        .set(Rect { w: 100.0, h: 100.0 })
-        .set(Position { x: 0.0, y: 0.0 }); */
+    .entity_named("bob")
+    .set(Rect { w: 100.0, h: 100.0 })
+    .set(Position { x: 0.0, y: 0.0 }); */
 
     world.set(window);
     world.set(renderer);
 
     let mut event = sdl3::events::SDL_Event::default();
+
+    observer!(world, RenderEvent, flecs::Any).each_iter(|it, _, _| unsafe {
+        let render_event = &*it.param();
+        let render_pass = render_event.render_pass;
+
+        SDL_BindGPUGraphicsPipeline(render_pass, PIPELINE);
+        if VERTEX_BUFFER != null_mut() {
+            let bindings = SDL_GPUBufferBinding {
+                buffer: VERTEX_BUFFER,
+                offset: 0,
+            };
+            SDL_BindGPUVertexBuffers(render_pass, 0, &bindings, 1);
+            SDL_DrawGPUPrimitives(render_pass, VERTEX_COUNT, 1, 0, 0);
+        }
+    });
 
     system!("draw_screen", world, &GpuApi, &Window)
         .singleton()
@@ -479,42 +480,114 @@ fn main() -> Result<(), &'static str> {
             let shape_1 = Shape {
                 vertices: vec![
                     PositionColorVertex {
-                        position: Vec3 { x: 0.0, y: -1.0, z: 0.0 },
-                        color: Color { r: 255, g: 0, b: 0, a: 255 },
+                        position: Vec3 {
+                            x: 0.0,
+                            y: -1.0,
+                            z: 0.0,
+                        },
+                        color: Color {
+                            r: 255,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
                     },
                     PositionColorVertex {
-                        position: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
-                        color: Color { r: 0, g: 255, b: 0, a: 255 },
+                        position: Vec3 {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
+                        color: Color {
+                            r: 0,
+                            g: 255,
+                            b: 0,
+                            a: 255,
+                        },
                     },
                     PositionColorVertex {
-                        position: Vec3 { x: 1.0, y: 0.0, z: 0.0 },
-                        color: Color { r: 0, g: 0, b: 255, a: 255 },
+                        position: Vec3 {
+                            x: 1.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
+                        color: Color {
+                            r: 0,
+                            g: 0,
+                            b: 255,
+                            a: 255,
+                        },
                     },
                     PositionColorVertex {
-                        position: Vec3 { x: 1.0, y: -1.0, z: 0.0 },
-                        color: Color { r: 255, g: 0, b: 0, a: 255 },
-                    }
+                        position: Vec3 {
+                            x: 1.0,
+                            y: -1.0,
+                            z: 0.0,
+                        },
+                        color: Color {
+                            r: 255,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
+                    },
                 ],
                 indices: vec![0, 1, 2, 0, 2, 3],
             };
             let shape_2 = Shape {
                 vertices: vec![
                     PositionColorVertex {
-                        position: Vec3 { x: -1.0, y: 1.0, z: 0.0 },
-                        color: Color { r: 255, g: 0, b: 0, a: 255 },
+                        position: Vec3 {
+                            x: -1.0,
+                            y: 1.0,
+                            z: 0.0,
+                        },
+                        color: Color {
+                            r: 255,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
                     },
                     PositionColorVertex {
-                        position: Vec3 { x: -1.0, y: 0.0, z: 0.0 },
-                        color: Color { r: 0, g: 255, b: 0, a: 255 },
+                        position: Vec3 {
+                            x: -1.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
+                        color: Color {
+                            r: 0,
+                            g: 255,
+                            b: 0,
+                            a: 255,
+                        },
                     },
                     PositionColorVertex {
-                        position: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
-                        color: Color { r: 0, g: 0, b: 255, a: 255 },
+                        position: Vec3 {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
+                        color: Color {
+                            r: 0,
+                            g: 0,
+                            b: 255,
+                            a: 255,
+                        },
                     },
                     PositionColorVertex {
-                        position: Vec3 { x: 0.0, y: 1.0, z: 0.0 },
-                        color: Color { r: 255, g: 0, b: 0, a: 255 },
-                    }
+                        position: Vec3 {
+                            x: 0.0,
+                            y: 1.0,
+                            z: 0.0,
+                        },
+                        color: Color {
+                            r: 255,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
+                    },
                 ],
                 indices: vec![0, 1, 2, 0, 2, 3],
             };
