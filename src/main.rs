@@ -21,6 +21,9 @@ use sdl3_sys::{
 /* static mut LINE_PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut();
 static mut FILL_PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut(); */
 static mut PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut();
+static mut CUBE_PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut();
+static mut CUBE_VERTEX_BUFFER: *mut SDL_GPUBuffer = null_mut();
+static mut CUBE_INDEX_BUFFER: *mut SDL_GPUBuffer = null_mut();
 static mut VERTEX_BUFFER: *mut SDL_GPUBuffer = null_mut();
 static mut VERTEX_COUNT: u32 = 0;
 
@@ -75,6 +78,12 @@ pub struct Shape {
 #[derive(Component)]
 pub struct RenderEvent {
     pub render_pass: *mut SDL_GPURenderPass,
+}
+
+#[derive(Component)]
+pub struct ShadersInitEvent {
+    pub gpu_device: *mut SDL_GPUDevice,
+    pub window: *mut SDL_Window,
 }
 
 impl Shape {
@@ -168,154 +177,12 @@ impl GpuApi {
         self.color = color;
     }
 
-    #[allow(unused_assignments)]
-    pub fn load_shader(
-        &self,
-        file_name: &str,
-        sampler_count: u32,
-        uniform_buffer_count: u32,
-        storage_buffer_count: u32,
-        storage_text_count: u32,
-    ) -> Result<*mut SDL_GPUShader, String> {
-        let file_name = CString::new(file_name).unwrap();
-        unsafe {
-            let base_path = CString::new(env!("CARGO_MANIFEST_DIR")).unwrap(); /* SDL_GetBasePath(); */
-            let mut stage = SDL_GPUShaderStage::default();
-            if SDL_strstr(file_name.as_ptr(), CString::new(".vert").unwrap().as_ptr()) != null_mut()
-            {
-                stage = SDL_GPU_SHADERSTAGE_VERTEX;
-            } else if SDL_strstr(file_name.as_ptr(), CString::new(".frag").unwrap().as_ptr())
-                != null_mut()
-            {
-                stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
-            } else {
-                return Err("Invalid shader file extension".to_owned());
-            }
-
-            let mut full_path: *mut c_char = null_mut();
-            let backend_formats = SDL_GetGPUShaderFormats(self.gpu_device);
-            let mut format = SDL_GPU_SHADERFORMAT_INVALID;
-            let mut entrypoint = CString::new("").unwrap();
-
-            if (backend_formats & SDL_GPU_SHADERFORMAT_SPIRV) != 0 {
-                full_path = CString::new(format!(
-                    "{}/Shaders/Compiled/SPIRV/{}.spv",
-                    base_path.to_str().unwrap(),
-                    file_name.to_str().unwrap()
-                ))
-                .unwrap()
-                .into_raw();
-                format = SDL_GPU_SHADERFORMAT_SPIRV;
-                entrypoint = CString::new("main").unwrap();
-            } else if (backend_formats & SDL_GPU_SHADERFORMAT_MSL) != 0 {
-                full_path = CString::new(format!(
-                    "{}/Shaders/Compiled/MSL/{}.msl",
-                    base_path.to_str().unwrap(),
-                    file_name.to_str().unwrap()
-                ))
-                .unwrap()
-                .into_raw();
-                format = SDL_GPU_SHADERFORMAT_MSL;
-                entrypoint = CString::new("main0").unwrap();
-            } else if (backend_formats & SDL_GPU_SHADERFORMAT_DXIL) != 0 {
-                full_path = CString::new(format!(
-                    "{}/Shaders/Compiled/DXIL/{}.dxil",
-                    base_path.to_str().unwrap(),
-                    file_name.to_str().unwrap()
-                ))
-                .unwrap()
-                .into_raw();
-                format = SDL_GPU_SHADERFORMAT_DXIL;
-                entrypoint = CString::new("main").unwrap();
-            } else {
-                return Err("Unrecognized backend shader format!".to_owned());
-            }
-
-            let mut code_size: usize = 0;
-            let code = SDL_LoadFile(full_path, &mut code_size) as *const u8;
-            if code == null_mut() {
-                return Err("Failed to load shader file".to_owned());
-            }
-
-            let shader_info = SDL_GPUShaderCreateInfo {
-                code_size,
-                code,
-                entrypoint: entrypoint.as_ptr(),
-                format,
-                stage,
-                num_samplers: sampler_count,
-                num_uniform_buffers: uniform_buffer_count,
-                num_storage_buffers: storage_buffer_count,
-                num_storage_textures: storage_text_count,
-                ..Default::default()
-            };
-
-            let shader = SDL_CreateGPUShader(self.gpu_device, &shader_info);
-            if shader == null_mut() {
-                SDL_free(code as *mut _);
-                return Err("Failed to create shader".to_owned());
-            }
-
-            SDL_free(code as *mut _);
-            return Ok(shader);
-        }
-    }
-
-    pub fn init(&self, window: *mut SDL_Window) -> Result<(), String> {
-        unsafe {
-            let vertex_shader = self.load_shader("PositionColor.vert", 0, 0, 0, 0)?;
-            let fragment_shader = self.load_shader("SolidColor.frag", 0, 0, 0, 0)?;
-
-            let pipeline_create_info = SDL_GPUGraphicsPipelineCreateInfo {
-                target_info: SDL_GPUGraphicsPipelineTargetInfo {
-                    num_color_targets: 1,
-                    color_target_descriptions: &(SDL_GPUColorTargetDescription {
-                        format: SDL_GetGPUSwapchainTextureFormat(self.gpu_device, window),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-                vertex_input_state: SDL_GPUVertexInputState {
-                    num_vertex_buffers: 1,
-                    vertex_buffer_descriptions: &(SDL_GPUVertexBufferDescription {
-                        slot: 0,
-                        input_rate: SDL_GPU_VERTEXINPUTRATE_VERTEX,
-                        instance_step_rate: 0,
-                        pitch: size_of::<PositionColorVertex>() as u32,
-                    }),
-                    num_vertex_attributes: 2,
-                    vertex_attributes: [
-                        SDL_GPUVertexAttribute {
-                            buffer_slot: 0,
-                            format: SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-                            location: 0,
-                            offset: 0,
-                        },
-                        SDL_GPUVertexAttribute {
-                            buffer_slot: 0,
-                            format: SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
-                            location: 1,
-                            offset: (size_of::<f32>() * 3) as u32,
-                        },
-                    ]
-                    .as_ptr(),
-                },
-                primitive_type: SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
-                vertex_shader,
-                fragment_shader,
-                ..Default::default()
-            };
-
-            PIPELINE = SDL_CreateGPUGraphicsPipeline(self.gpu_device, &pipeline_create_info);
-            if PIPELINE == null_mut() {
-                return Err("Failed to create graphics pipeline".to_owned());
-            }
-
-            SDL_ReleaseGPUShader(self.gpu_device, vertex_shader);
-            SDL_ReleaseGPUShader(self.gpu_device, fragment_shader);
-
-            Ok(())
-        }
+    pub fn init(&self, world: &World, window: *mut SDL_Window) {
+        let event = &ShadersInitEvent {
+            gpu_device: self.gpu_device,
+            window,
+        };
+        world.event().entity(world.entity()).emit(event);
     }
 
     pub fn draw_vertex(&self, shapes: Vec<Shape>) {
@@ -414,6 +281,98 @@ impl Window {
     }
 }
 
+#[allow(unused_assignments)]
+pub fn load_shader(
+    gpu_device: *mut SDL_GPUDevice,
+    file_name: &str,
+    sampler_count: u32,
+    uniform_buffer_count: u32,
+    storage_buffer_count: u32,
+    storage_text_count: u32,
+) -> Result<*mut SDL_GPUShader, String> {
+    let file_name = CString::new(file_name).unwrap();
+    unsafe {
+        let base_path = CString::new(env!("CARGO_MANIFEST_DIR")).unwrap(); /* SDL_GetBasePath(); */
+        let mut stage = SDL_GPUShaderStage::default();
+        if SDL_strstr(file_name.as_ptr(), CString::new(".vert").unwrap().as_ptr()) != null_mut() {
+            stage = SDL_GPU_SHADERSTAGE_VERTEX;
+        } else if SDL_strstr(file_name.as_ptr(), CString::new(".frag").unwrap().as_ptr())
+            != null_mut()
+        {
+            stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+        } else {
+            return Err("Invalid shader file extension".to_owned());
+        }
+
+        let mut full_path: *mut c_char = null_mut();
+        let backend_formats = SDL_GetGPUShaderFormats(gpu_device);
+        let mut format = SDL_GPU_SHADERFORMAT_INVALID;
+        let mut entrypoint = CString::new("").unwrap();
+
+        if (backend_formats & SDL_GPU_SHADERFORMAT_SPIRV) != 0 {
+            full_path = CString::new(format!(
+                "{}/Shaders/Compiled/SPIRV/{}.spv",
+                base_path.to_str().unwrap(),
+                file_name.to_str().unwrap()
+            ))
+            .unwrap()
+            .into_raw();
+            format = SDL_GPU_SHADERFORMAT_SPIRV;
+            entrypoint = CString::new("main").unwrap();
+        } else if (backend_formats & SDL_GPU_SHADERFORMAT_MSL) != 0 {
+            full_path = CString::new(format!(
+                "{}/Shaders/Compiled/MSL/{}.msl",
+                base_path.to_str().unwrap(),
+                file_name.to_str().unwrap()
+            ))
+            .unwrap()
+            .into_raw();
+            format = SDL_GPU_SHADERFORMAT_MSL;
+            entrypoint = CString::new("main0").unwrap();
+        } else if (backend_formats & SDL_GPU_SHADERFORMAT_DXIL) != 0 {
+            full_path = CString::new(format!(
+                "{}/Shaders/Compiled/DXIL/{}.dxil",
+                base_path.to_str().unwrap(),
+                file_name.to_str().unwrap()
+            ))
+            .unwrap()
+            .into_raw();
+            format = SDL_GPU_SHADERFORMAT_DXIL;
+            entrypoint = CString::new("main").unwrap();
+        } else {
+            return Err("Unrecognized backend shader format!".to_owned());
+        }
+
+        let mut code_size: usize = 0;
+        let code = SDL_LoadFile(full_path, &mut code_size) as *const u8;
+        if code == null_mut() {
+            return Err("Failed to load shader file".to_owned());
+        }
+
+        let shader_info = SDL_GPUShaderCreateInfo {
+            code_size,
+            code,
+            entrypoint: entrypoint.as_ptr(),
+            format,
+            stage,
+            num_samplers: sampler_count,
+            num_uniform_buffers: uniform_buffer_count,
+            num_storage_buffers: storage_buffer_count,
+            num_storage_textures: storage_text_count,
+            ..Default::default()
+        };
+
+        let shader = SDL_CreateGPUShader(gpu_device, &shader_info);
+        if shader == null_mut() {
+            SDL_free(code as *mut _);
+            return Err("Failed to create shader".to_owned());
+        }
+
+        SDL_free(code as *mut _);
+        return Ok(shader);
+    }
+}
+
 fn main() -> Result<(), &'static str> {
     let world = World::new();
 
@@ -440,7 +399,71 @@ fn main() -> Result<(), &'static str> {
 
     let window = Window::new("Example window", 800, 600);
     let renderer = GpuApi::new(window.0);
-    renderer.init(window.0).unwrap();
+    renderer.init(&world, window.0);
+
+    // Init Shaders
+    observer!("init_vertex_shader", world, ShadersInitEvent, flecs::Any).each_iter(|it, _, _| {
+        println!("Event");
+        let event = &*it.param();
+        let gpu_device = event.gpu_device;
+        let window = event.window;
+        unsafe {
+            println!("Creating Vertex shader");
+            let vertex_shader = load_shader(gpu_device, "PositionColor.vert", 0, 0, 0, 0).unwrap();
+            println!("Creating Fragment shader");
+            let fragment_shader = load_shader(gpu_device, "SolidColor.frag", 0, 0, 0, 0).unwrap();
+
+            let pipeline_create_info = SDL_GPUGraphicsPipelineCreateInfo {
+                target_info: SDL_GPUGraphicsPipelineTargetInfo {
+                    num_color_targets: 1,
+                    color_target_descriptions: &(SDL_GPUColorTargetDescription {
+                        format: SDL_GetGPUSwapchainTextureFormat(gpu_device, window),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                vertex_input_state: SDL_GPUVertexInputState {
+                    num_vertex_buffers: 1,
+                    vertex_buffer_descriptions: &(SDL_GPUVertexBufferDescription {
+                        slot: 0,
+                        input_rate: SDL_GPU_VERTEXINPUTRATE_VERTEX,
+                        instance_step_rate: 0,
+                        pitch: size_of::<PositionColorVertex>() as u32,
+                    }),
+                    num_vertex_attributes: 2,
+                    vertex_attributes: [
+                        SDL_GPUVertexAttribute {
+                            buffer_slot: 0,
+                            format: SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+                            location: 0,
+                            offset: 0,
+                        },
+                        SDL_GPUVertexAttribute {
+                            buffer_slot: 0,
+                            format: SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
+                            location: 1,
+                            offset: (size_of::<f32>() * 3) as u32,
+                        },
+                    ]
+                    .as_ptr(),
+                },
+                primitive_type: SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+                vertex_shader,
+                fragment_shader,
+                ..Default::default()
+            };
+            println!("Pipeline created");
+
+            PIPELINE = SDL_CreateGPUGraphicsPipeline(gpu_device, &pipeline_create_info);
+            if PIPELINE == null_mut() {
+                panic!("Failed to create graphics pipeline");
+            }
+
+            SDL_ReleaseGPUShader(gpu_device, vertex_shader);
+            SDL_ReleaseGPUShader(gpu_device, fragment_shader);
+        }
+    });
+
     //renderer.create_shader_pipeline().unwrap();
 
     /* let _bob = world
@@ -453,7 +476,7 @@ fn main() -> Result<(), &'static str> {
 
     let mut event = sdl3::events::SDL_Event::default();
 
-    observer!(world, RenderEvent, flecs::Any).each_iter(|it, _, _| unsafe {
+    observer!("draw_vertex_buffer", world, RenderEvent, flecs::Any).each_iter(|it, _, _| unsafe {
         let render_event = &*it.param();
         let render_pass = render_event.render_pass;
 
