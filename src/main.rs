@@ -7,7 +7,7 @@ use flecs_ecs::{
     prelude::*,
 };
 
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use gpu::{GpuApi, RenderEvent, ShadersInitEvent};
 use sdl3_sys::{
     self as sdl3,
@@ -219,7 +219,7 @@ impl Triangle {
             *transfer_data.add(1) = triangle.points[1];
             *transfer_data.add(2) = triangle.points[2];
 
-            let index_data = transfer_data.add(4) as *mut u16;
+            let index_data = transfer_data.add(3) as *mut u16;
 
             *index_data.add(0) = 0;
             *index_data.add(1) = 1;
@@ -290,6 +290,10 @@ impl Triangle {
 
         self.points = rotated_points;
     }
+}
+
+fn create_translation(x: f32, y: f32, z: f32) -> Mat4 {
+    Mat4::from_cols_array(&[1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., x, y, z, 1.])
 }
 
 fn main() -> Result<(), &'static str> {
@@ -388,13 +392,12 @@ fn main() -> Result<(), &'static str> {
         Vec3::new(-0.5, -1.0, 0.),
         Vec3::new(-0.75, -0.5, 0.),
     ));
-    /* world.entity().set(Uuid::new()).set(Triangle::new(
+    world.entity().set(Uuid::new()).set(Triangle::new(
         renderer.gpu_device,
         Vec3::new(-0.5, -1.0, 0.),
         Vec3::new(0.0, -1.0, 0.),
         Vec3::new(-0.25, -0.5, 0.),
     ));
-    */
     world.set(window);
     world.set(renderer);
 
@@ -407,36 +410,79 @@ fn main() -> Result<(), &'static str> {
         let world = it.world();
 
         world.get::<&Pipeline>(|pipeline| {
-            let triangle_query = world.query::<&Triangle>().build();
-            triangle_query.each(|triangle| {
-                let graphics_pipeline = pipeline.0;
+            world.get::<&GpuApi>(|gpu_api| {
+                let gpu_device = gpu_api.gpu_device;
+                let triangle_query = world.query::<&Triangle>().build();
+                triangle_query.each(|triangle| {
+                    let graphics_pipeline = pipeline.0;
 
-                SDL_BindGPUGraphicsPipeline(render_pass, graphics_pipeline);
-                SDL_BindGPUVertexBuffers(
-                    render_pass,
-                    0,
-                    &SDL_GPUBufferBinding {
-                        buffer: triangle.vertex_buffer,
-                        offset: 0,
-                    },
-                    1,
-                );
-                SDL_BindGPUIndexBuffer(
-                    render_pass,
-                    &SDL_GPUBufferBinding {
-                        buffer: triangle.index_buffer,
-                        offset: 0,
-                    },
-                    SDL_GPU_INDEXELEMENTSIZE_16BIT,
-                );
-                SDL_PushGPUVertexUniformData(
-                    command_buffer,
-                    0,
-                    triangle.points.as_ptr() as *const c_void,
-                    (size_of::<Vec3>() * 3) as u32,
-                );
-                //println!("Triangle points: {:?}", triangle.points);
-                SDL_DrawGPUIndexedPrimitives(render_pass, triangle.points.len() as u32, 1, 0, 0, 0);
+                    SDL_BindGPUGraphicsPipeline(render_pass, graphics_pipeline);
+                    SDL_BindGPUVertexBuffers(
+                        render_pass,
+                        0,
+                        &SDL_GPUBufferBinding {
+                            buffer: triangle.vertex_buffer,
+                            offset: 0,
+                        },
+                        1,
+                    );
+                    SDL_BindGPUIndexBuffer(
+                        render_pass,
+                        &SDL_GPUBufferBinding {
+                            buffer: triangle.index_buffer,
+                            offset: 0,
+                        },
+                        SDL_GPU_INDEXELEMENTSIZE_16BIT,
+                    );
+
+                    let transfer_buffer = SDL_CreateGPUTransferBuffer(
+                        gpu_device,
+                        &SDL_GPUTransferBufferCreateInfo {
+                            usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+                            size: (size_of::<Vec3>() * 3) as u32,
+                            ..Default::default()
+                        },
+                    );
+
+                    let transfer_data: *mut Vec3 =
+                        SDL_MapGPUTransferBuffer(gpu_device, transfer_buffer, false) as *mut _;
+
+                    *transfer_data.add(0) = triangle.points[0];
+                    *transfer_data.add(1) = triangle.points[1];
+                    *transfer_data.add(2) = triangle.points[2];
+
+                    SDL_UnmapGPUTransferBuffer(gpu_device, transfer_buffer);
+
+                    let command_buffer_2 = SDL_AcquireGPUCommandBuffer(gpu_device);
+                    let copy_pass = SDL_BeginGPUCopyPass(command_buffer_2);
+
+                    SDL_UploadToGPUBuffer(
+                        copy_pass,
+                        &SDL_GPUTransferBufferLocation {
+                            transfer_buffer,
+                            offset: 0,
+                        },
+                        &SDL_GPUBufferRegion {
+                            buffer: triangle.vertex_buffer,
+                            offset: 0,
+                            size: (size_of::<Vec3>() * 3) as u32,
+                        },
+                        false,
+                    );
+
+                    SDL_EndGPUCopyPass(copy_pass);
+                    SDL_SubmitGPUCommandBuffer(command_buffer_2);
+                    SDL_ReleaseGPUTransferBuffer(gpu_device, transfer_buffer);
+
+                    SDL_DrawGPUIndexedPrimitives(
+                        render_pass,
+                        triangle.points.len() as u32,
+                        1,
+                        0,
+                        0,
+                        0,
+                    );
+                });
             });
         });
     });
@@ -448,7 +494,7 @@ fn main() -> Result<(), &'static str> {
         });
 
     system!("update_triangle", world, &mut Triangle).each_iter(|it, _, triangle| {
-        //triangle.rotate(10.0 * it.delta_time());
+        triangle.rotate(1.0 * it.delta_time());
     });
 
     //let start_time = std::time::Instant::now();
