@@ -1,285 +1,32 @@
-use std::{
-    ffi::{CStr, CString, c_char},
-    ptr::null_mut,
+use flecs_ecs::{
+    core::{
+        flecs, EntityView, EntityViewGet, QueryBuilderImpl, SystemAPI, TermBuilderImpl, World,
+        WorldGet,
+    },
+    macros::{observer, system, Component},
+    prelude::*,
 };
 
-use flecs_ecs::{
-    core::{QueryBuilderImpl, SystemAPI, TermBuilderImpl, World, flecs},
-    macros::{Component, observer, system},
-};
+use glam::Vec3;
+use gpu::{GpuApi, RenderEvent, ShadersInitEvent};
 use sdl3_sys::{
     self as sdl3,
-    error::SDL_GetError,
     gpu::*,
     iostream::SDL_LoadFile,
-    pixels::SDL_FColor,
-    properties::*,
+    pixels::{SDL_PIXELFORMAT_ABGR8888, SDL_PIXELFORMAT_UNKNOWN},
     stdinc::{SDL_free, SDL_strstr},
-    video::*,
+    surface::{SDL_ConvertSurface, SDL_DestroySurface, SDL_LoadBMP, SDL_Surface},
 };
+use std::{
+    ffi::{c_char, c_void, CString},
+    ptr::null_mut,
+};
+use window::Window;
 
-/* static mut LINE_PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut();
-static mut FILL_PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut(); */
-static mut PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut();
-static mut CUBE_PIPELINE: *mut SDL_GPUGraphicsPipeline = null_mut();
-static mut CUBE_VERTEX_BUFFER: *mut SDL_GPUBuffer = null_mut();
-static mut CUBE_INDEX_BUFFER: *mut SDL_GPUBuffer = null_mut();
-static mut VERTEX_BUFFER: *mut SDL_GPUBuffer = null_mut();
-static mut VERTEX_COUNT: u32 = 0;
+mod gpu;
+mod window;
 
-#[derive(Debug, Component)]
-pub struct Window(pub *mut SDL_Window);
-
-#[derive(Debug, Component)]
-pub struct GpuApi {
-    pub gpu_device: *mut SDL_GPUDevice,
-    pub color: (f32, f32, f32),
-}
-
-#[derive(Debug, Component)]
-pub struct Rect {
-    pub w: f32,
-    pub h: f32,
-}
-
-#[derive(Debug, Component)]
-pub struct Position {
-    pub x: f32,
-    pub y: f32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Vec3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PositionColorVertex {
-    pub position: Vec3,
-    pub color: Color,
-}
-
-#[derive(Debug, Clone)]
-pub struct Shape {
-    pub vertices: Vec<PositionColorVertex>,
-    pub indices: Vec<u32>,
-}
-
-#[derive(Component)]
-pub struct RenderEvent {
-    pub render_pass: *mut SDL_GPURenderPass,
-}
-
-#[derive(Component)]
-pub struct ShadersInitEvent {
-    pub gpu_device: *mut SDL_GPUDevice,
-    pub window: *mut SDL_Window,
-}
-
-impl Shape {
-    pub fn size(&self) -> u32 {
-        (size_of::<PositionColorVertex>() * self.indices.len()) as u32
-    }
-}
-
-impl GpuApi {
-    pub fn new(window: *mut SDL_Window) -> Self {
-        unsafe {
-            let gpu_device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, null_mut());
-
-            if gpu_device == null_mut() {
-                let error = CStr::from_ptr(SDL_GetError()).to_str().unwrap();
-                panic!("Failed to create GPU device: {:?}", error);
-            }
-
-            if !SDL_ClaimWindowForGPUDevice(gpu_device, window) {
-                let error = CStr::from_ptr(SDL_GetError()).to_str().unwrap();
-                panic!("Failed to claim window for GPU device: {:?}", error);
-            }
-
-            Self {
-                gpu_device,
-                color: (0.0, 0.0, 0.0),
-            }
-        }
-    }
-
-    pub fn draw(&self, window: *mut SDL_Window, world: &World) {
-        unsafe {
-            let cmd_buf = SDL_AcquireGPUCommandBuffer(self.gpu_device);
-            if cmd_buf == null_mut() {
-                let error = CStr::from_ptr(SDL_GetError()).to_str().unwrap();
-                panic!("Failed to acquire GPU command buffer: {:?}", error);
-            }
-
-            let mut swapchain_texture: *mut SDL_GPUTexture = null_mut();
-            if !SDL_WaitAndAcquireGPUSwapchainTexture(
-                cmd_buf,
-                window,
-                &mut swapchain_texture,
-                null_mut(),
-                null_mut(),
-            ) {
-                let error = CStr::from_ptr(SDL_GetError()).to_str().unwrap();
-                panic!(
-                    "Failed to wait and acquire GPU swapchain texture: {:?}",
-                    error
-                );
-            }
-
-            if swapchain_texture != null_mut() {
-                let mut color_target_info = SDL_GPUColorTargetInfo::default();
-                color_target_info.texture = swapchain_texture;
-                color_target_info.clear_color = SDL_FColor {
-                    r: self.color.0,
-                    g: self.color.1,
-                    b: self.color.2,
-                    a: 1.0,
-                };
-                color_target_info.load_op = SDL_GPU_LOADOP_CLEAR;
-                color_target_info.store_op = SDL_GPU_STOREOP_STORE;
-
-                let render_pass =
-                    SDL_BeginGPURenderPass(cmd_buf, &color_target_info, 1, null_mut());
-
-                SDL_BindGPUGraphicsPipeline(render_pass, PIPELINE);
-                if VERTEX_BUFFER != null_mut() {
-                    let bindings = SDL_GPUBufferBinding {
-                        buffer: VERTEX_BUFFER,
-                        offset: 0,
-                    };
-                    SDL_BindGPUVertexBuffers(render_pass, 0, &bindings, 1);
-                    SDL_DrawGPUPrimitives(render_pass, VERTEX_COUNT, 1, 0, 0);
-                }
-
-                let render_event = RenderEvent { render_pass };
-
-                world.event().entity(world.entity()).emit(&render_event);
-
-                SDL_EndGPURenderPass(render_pass);
-            }
-
-            SDL_SubmitGPUCommandBuffer(cmd_buf);
-        }
-    }
-
-    pub fn set_color(&mut self, color: (f32, f32, f32)) {
-        self.color = color;
-    }
-
-    pub fn init(&self, world: &World, window: *mut SDL_Window) {
-        let event = &ShadersInitEvent {
-            gpu_device: self.gpu_device,
-            window,
-        };
-        world.event().entity(world.entity()).emit(event);
-    }
-
-    pub fn draw_vertex(&self, shapes: Vec<Shape>) {
-        let size = shapes.iter().fold(0, |acc, shape| acc + shape.size());
-        unsafe {
-            let vertex_buffer_create_info = SDL_GPUBufferCreateInfo {
-                usage: SDL_GPU_BUFFERUSAGE_VERTEX,
-                size: size,
-                ..Default::default()
-            };
-
-            VERTEX_BUFFER = SDL_CreateGPUBuffer(self.gpu_device, &vertex_buffer_create_info);
-
-            let transfer_buffer = SDL_CreateGPUTransferBuffer(
-                self.gpu_device,
-                &(SDL_GPUTransferBufferCreateInfo {
-                    usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-                    size: vertex_buffer_create_info.size,
-                    ..Default::default()
-                }),
-            );
-
-            let mut offset = 0;
-            for shape in shapes.iter() {
-                let transfer_data: *mut PositionColorVertex =
-                    SDL_MapGPUTransferBuffer(self.gpu_device, transfer_buffer, false) as *mut _;
-
-                let transfer_data_slice =
-                    std::slice::from_raw_parts_mut(transfer_data, shape.indices.len() + offset);
-
-                for (i, vertex) in shape.indices.iter().enumerate() {
-                    transfer_data_slice[i + offset] = shape.vertices[*vertex as usize];
-                }
-
-                offset += shape.indices.len();
-
-                SDL_UnmapGPUTransferBuffer(self.gpu_device, transfer_buffer);
-            }
-
-            VERTEX_COUNT = offset as u32;
-
-            let upload_cmd_buf = SDL_AcquireGPUCommandBuffer(self.gpu_device);
-            let copy_pass = SDL_BeginGPUCopyPass(upload_cmd_buf);
-
-            SDL_UploadToGPUBuffer(
-                copy_pass,
-                &(SDL_GPUTransferBufferLocation {
-                    transfer_buffer,
-                    offset: 0,
-                }),
-                &(SDL_GPUBufferRegion {
-                    buffer: VERTEX_BUFFER,
-                    offset: 0,
-                    size: vertex_buffer_create_info.size,
-                }),
-                false,
-            );
-
-            SDL_EndGPUCopyPass(copy_pass);
-            SDL_SubmitGPUCommandBuffer(upload_cmd_buf);
-            SDL_ReleaseGPUTransferBuffer(self.gpu_device, transfer_buffer);
-        }
-    }
-}
-
-impl Window {
-    pub fn new(title: &str, width: i64, height: i64) -> Self {
-        unsafe {
-            let props: SDL_PropertiesID = SDL_CreateProperties();
-
-            SDL_SetStringProperty(
-                props,
-                SDL_PROP_WINDOW_CREATE_TITLE_STRING,
-                CString::new(title).unwrap().as_ptr(),
-            );
-            SDL_SetNumberProperty(
-                props,
-                SDL_PROP_WINDOW_CREATE_X_NUMBER,
-                SDL_WINDOWPOS_CENTERED as i64,
-            );
-            SDL_SetNumberProperty(
-                props,
-                SDL_PROP_WINDOW_CREATE_Y_NUMBER,
-                SDL_WINDOWPOS_CENTERED as i64,
-            );
-            SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, width);
-            SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, height);
-            SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_RESIZABLE_BOOLEAN, true);
-
-            let window = sdl3::video::SDL_CreateWindowWithProperties(props);
-            if window == null_mut() {
-                panic!("Failed to create window");
-            }
-            Self(window)
-        }
-    }
-}
+const BASE_PATH: &str = env!("CARGO_MANIFEST_DIR");
 
 #[allow(unused_assignments)]
 pub fn load_shader(
@@ -292,7 +39,7 @@ pub fn load_shader(
 ) -> Result<*mut SDL_GPUShader, String> {
     let file_name = CString::new(file_name).unwrap();
     unsafe {
-        let base_path = CString::new(env!("CARGO_MANIFEST_DIR")).unwrap(); /* SDL_GetBasePath(); */
+        //let base_path = CString::new(BASE_PATH).unwrap(); /* SDL_GetBasePath(); */
         let mut stage = SDL_GPUShaderStage::default();
         if SDL_strstr(file_name.as_ptr(), CString::new(".vert").unwrap().as_ptr()) != null_mut() {
             stage = SDL_GPU_SHADERSTAGE_VERTEX;
@@ -312,7 +59,7 @@ pub fn load_shader(
         if (backend_formats & SDL_GPU_SHADERFORMAT_SPIRV) != 0 {
             full_path = CString::new(format!(
                 "{}/Shaders/Compiled/SPIRV/{}.spv",
-                base_path.to_str().unwrap(),
+                BASE_PATH,
                 file_name.to_str().unwrap()
             ))
             .unwrap()
@@ -322,7 +69,7 @@ pub fn load_shader(
         } else if (backend_formats & SDL_GPU_SHADERFORMAT_MSL) != 0 {
             full_path = CString::new(format!(
                 "{}/Shaders/Compiled/MSL/{}.msl",
-                base_path.to_str().unwrap(),
+                BASE_PATH,
                 file_name.to_str().unwrap()
             ))
             .unwrap()
@@ -332,7 +79,7 @@ pub fn load_shader(
         } else if (backend_formats & SDL_GPU_SHADERFORMAT_DXIL) != 0 {
             full_path = CString::new(format!(
                 "{}/Shaders/Compiled/DXIL/{}.dxil",
-                base_path.to_str().unwrap(),
+                BASE_PATH,
                 file_name.to_str().unwrap()
             ))
             .unwrap()
@@ -373,6 +120,178 @@ pub fn load_shader(
     }
 }
 
+#[allow(unused_assignments)]
+pub fn load_image(file_name: &str, desired_channels: u32) -> *mut SDL_Surface {
+    let mut full_path: *mut c_char = null_mut();
+    let mut result: *mut SDL_Surface = null_mut();
+    let mut pixel_format = SDL_PIXELFORMAT_UNKNOWN;
+
+    full_path = CString::new(format!("{}/Images/{}", BASE_PATH, file_name))
+        .unwrap()
+        .into_raw();
+
+    result = unsafe { SDL_LoadBMP(full_path) };
+    if result == null_mut() {
+        panic!("Failed to load BMP");
+    }
+
+    if desired_channels == 4 {
+        pixel_format = SDL_PIXELFORMAT_ABGR8888;
+    } else {
+        unsafe {
+            SDL_DestroySurface(result);
+            panic!("Unexpected desired_channels");
+        }
+    }
+
+    unsafe {
+        if (*result).format != pixel_format {
+            let next = SDL_ConvertSurface(result, pixel_format);
+            SDL_DestroySurface(result);
+            result = next;
+        }
+    }
+
+    return result;
+}
+
+#[derive(Component)]
+pub struct Pipeline(pub *mut SDL_GPUGraphicsPipeline);
+
+unsafe impl Send for Pipeline {}
+unsafe impl Sync for Pipeline {}
+
+#[derive(Component)]
+pub struct Triangle {
+    pub points: [Vec3; 3],
+    pub vertex_buffer: *mut SDL_GPUBuffer,
+    pub index_buffer: *mut SDL_GPUBuffer,
+}
+
+unsafe impl Send for Triangle {}
+unsafe impl Sync for Triangle {}
+
+#[derive(Component)]
+pub struct Uuid(pub uuid::Uuid);
+
+impl Uuid {
+    pub fn new() -> Self {
+        Self(uuid::Uuid::new_v4())
+    }
+}
+
+impl Triangle {
+    fn new(gpu_device: *mut SDL_GPUDevice, x: Vec3, y: Vec3, z: Vec3) -> Self {
+        unsafe {
+            let triangle = Triangle {
+                points: [x, y, z],
+                vertex_buffer: SDL_CreateGPUBuffer(
+                    gpu_device,
+                    &SDL_GPUBufferCreateInfo {
+                        usage: SDL_GPU_BUFFERUSAGE_VERTEX,
+                        size: (size_of::<Vec3>() * 3) as u32,
+                        ..Default::default()
+                    },
+                ),
+                index_buffer: SDL_CreateGPUBuffer(
+                    gpu_device,
+                    &SDL_GPUBufferCreateInfo {
+                        usage: SDL_GPU_BUFFERUSAGE_INDEX,
+                        size: (size_of::<u16>() * 3) as u32,
+                        ..Default::default()
+                    },
+                ),
+            };
+
+            let transfer_buffer = SDL_CreateGPUTransferBuffer(
+                gpu_device,
+                &SDL_GPUTransferBufferCreateInfo {
+                    usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+                    size: ((size_of::<Vec3>() * 3) + (size_of::<u16>() * 3)) as u32,
+                    ..Default::default()
+                },
+            );
+
+            let transfer_data: *mut Vec3 =
+                SDL_MapGPUTransferBuffer(gpu_device, transfer_buffer, false) as *mut _;
+
+            *transfer_data.add(0) = triangle.points[0];
+            *transfer_data.add(1) = triangle.points[1];
+            *transfer_data.add(2) = triangle.points[2];
+
+            let index_data = transfer_data.add(4) as *mut u16;
+
+            *index_data.add(0) = 0;
+            *index_data.add(1) = 1;
+            *index_data.add(2) = 2;
+
+            SDL_UnmapGPUTransferBuffer(gpu_device, transfer_buffer);
+
+            let command_buffer = SDL_AcquireGPUCommandBuffer(gpu_device);
+            let copy_pass = SDL_BeginGPUCopyPass(command_buffer);
+
+            SDL_UploadToGPUBuffer(
+                copy_pass,
+                &SDL_GPUTransferBufferLocation {
+                    transfer_buffer,
+                    offset: 0,
+                },
+                &SDL_GPUBufferRegion {
+                    buffer: triangle.vertex_buffer,
+                    offset: 0,
+                    size: (size_of::<Vec3>() * 3) as u32,
+                },
+                false,
+            );
+
+            SDL_UploadToGPUBuffer(
+                copy_pass,
+                &SDL_GPUTransferBufferLocation {
+                    transfer_buffer,
+                    offset: (size_of::<Vec3>() * 3) as u32,
+                },
+                &SDL_GPUBufferRegion {
+                    buffer: triangle.index_buffer,
+                    offset: 0,
+                    size: (size_of::<u16>() * 3) as u32,
+                },
+                false,
+            );
+
+            SDL_EndGPUCopyPass(copy_pass);
+            SDL_SubmitGPUCommandBuffer(command_buffer);
+            SDL_ReleaseGPUTransferBuffer(gpu_device, transfer_buffer);
+
+            triangle
+        }
+    }
+
+    fn rotate(&mut self, angle_radians: f32) {
+        // Calculate centroid (average position)
+        let center = (self.points[0] + self.points[1] + self.points[2]) / 3.0;
+
+        // Create rotation matrix for Z-axis rotation (assuming we're rotating in XY plane)
+        let cos_theta = angle_radians.cos();
+        let sin_theta = angle_radians.sin();
+
+        // Rotate each point around the centroid
+        let mut rotated_points = self.points;
+        for point in &mut rotated_points {
+            // Translate point to origin-centered coordinates
+            let translated = *point - center;
+
+            // Apply rotation (Z-axis)
+            let x_new = translated.x * cos_theta - translated.y * sin_theta;
+            let y_new = translated.x * sin_theta + translated.y * cos_theta;
+
+            // Translate back and update point
+            *point = Vec3::new(x_new, y_new, translated.z) + center;
+        }
+
+        self.points = rotated_points;
+    }
+}
+
 fn main() -> Result<(), &'static str> {
     let world = World::new();
 
@@ -394,24 +313,17 @@ fn main() -> Result<(), &'static str> {
 
     world.component::<Window>();
     world.component::<GpuApi>();
-    /* world.component::<Rect>();
-    world.component::<Position>(); */
-
-    let window = Window::new("Example window", 800, 600);
-    let renderer = GpuApi::new(window.0);
-    renderer.init(&world, window.0);
+    world.component::<Pipeline>();
 
     // Init Shaders
     observer!("init_vertex_shader", world, ShadersInitEvent, flecs::Any).each_iter(|it, _, _| {
-        println!("Event");
         let event = &*it.param();
+        let world = it.world();
         let gpu_device = event.gpu_device;
         let window = event.window;
         unsafe {
-            println!("Creating Vertex shader");
-            let vertex_shader = load_shader(gpu_device, "PositionColor.vert", 0, 0, 0, 0).unwrap();
-            println!("Creating Fragment shader");
-            let fragment_shader = load_shader(gpu_device, "SolidColor.frag", 0, 0, 0, 0).unwrap();
+            let vertex_shader = load_shader(gpu_device, "example.vert", 0, 0, 0, 0).unwrap();
+            let fragment_shader = load_shader(gpu_device, "example.frag", 0, 0, 0, 0).unwrap();
 
             let pipeline_create_info = SDL_GPUGraphicsPipelineCreateInfo {
                 target_info: SDL_GPUGraphicsPipelineTargetInfo {
@@ -428,23 +340,15 @@ fn main() -> Result<(), &'static str> {
                         slot: 0,
                         input_rate: SDL_GPU_VERTEXINPUTRATE_VERTEX,
                         instance_step_rate: 0,
-                        pitch: size_of::<PositionColorVertex>() as u32,
+                        pitch: size_of::<Vec3>() as u32,
                     }),
-                    num_vertex_attributes: 2,
-                    vertex_attributes: [
-                        SDL_GPUVertexAttribute {
-                            buffer_slot: 0,
-                            format: SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-                            location: 0,
-                            offset: 0,
-                        },
-                        SDL_GPUVertexAttribute {
-                            buffer_slot: 0,
-                            format: SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
-                            location: 1,
-                            offset: (size_of::<f32>() * 3) as u32,
-                        },
-                    ]
+                    num_vertex_attributes: 1,
+                    vertex_attributes: [SDL_GPUVertexAttribute {
+                        buffer_slot: 0,
+                        format: SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+                        location: 0,
+                        offset: 0,
+                    }]
                     .as_ptr(),
                 },
                 primitive_type: SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
@@ -452,25 +356,45 @@ fn main() -> Result<(), &'static str> {
                 fragment_shader,
                 ..Default::default()
             };
-            println!("Pipeline created");
 
-            PIPELINE = SDL_CreateGPUGraphicsPipeline(gpu_device, &pipeline_create_info);
-            if PIPELINE == null_mut() {
+            let pipeline = SDL_CreateGPUGraphicsPipeline(gpu_device, &pipeline_create_info);
+            if pipeline == null_mut() {
                 panic!("Failed to create graphics pipeline");
             }
 
+            world.set(Pipeline(pipeline));
+
             SDL_ReleaseGPUShader(gpu_device, vertex_shader);
             SDL_ReleaseGPUShader(gpu_device, fragment_shader);
+
+            println!("Setting Triangle");
         }
     });
 
-    //renderer.create_shader_pipeline().unwrap();
+    /* observer!("init_matrix_shaders", world, ShadersInitEvent, flecs::Any).each_iter(|it, _, _| {
+        let event = &*it.param();
+        let gpu_device = event.gpu_device;
+        let window = event.window;
+        unsafe {}
+    }); */
 
-    /* let _bob = world
-    .entity_named("bob")
-    .set(Rect { w: 100.0, h: 100.0 })
-    .set(Position { x: 0.0, y: 0.0 }); */
+    let window = Window::new("Example window", 800, 600);
+    let renderer = GpuApi::new(window.0);
+    renderer.init(&world, window.0);
 
+    world.entity().set(Uuid::new()).set(Triangle::new(
+        renderer.gpu_device,
+        Vec3::new(-1.0, -1.0, 0.),
+        Vec3::new(-0.5, -1.0, 0.),
+        Vec3::new(-0.75, -0.5, 0.),
+    ));
+    /* world.entity().set(Uuid::new()).set(Triangle::new(
+        renderer.gpu_device,
+        Vec3::new(-0.5, -1.0, 0.),
+        Vec3::new(0.0, -1.0, 0.),
+        Vec3::new(-0.25, -0.5, 0.),
+    ));
+    */
     world.set(window);
     world.set(renderer);
 
@@ -479,143 +403,53 @@ fn main() -> Result<(), &'static str> {
     observer!("draw_vertex_buffer", world, RenderEvent, flecs::Any).each_iter(|it, _, _| unsafe {
         let render_event = &*it.param();
         let render_pass = render_event.render_pass;
+        let command_buffer = render_event.command_buffer;
+        let world = it.world();
 
-        SDL_BindGPUGraphicsPipeline(render_pass, PIPELINE);
-        if VERTEX_BUFFER != null_mut() {
-            let bindings = SDL_GPUBufferBinding {
-                buffer: VERTEX_BUFFER,
-                offset: 0,
-            };
-            SDL_BindGPUVertexBuffers(render_pass, 0, &bindings, 1);
-            SDL_DrawGPUPrimitives(render_pass, VERTEX_COUNT, 1, 0, 0);
-        }
+        world.get::<&Pipeline>(|pipeline| {
+            let triangle_query = world.query::<&Triangle>().build();
+            triangle_query.each(|triangle| {
+                let graphics_pipeline = pipeline.0;
+
+                SDL_BindGPUGraphicsPipeline(render_pass, graphics_pipeline);
+                SDL_BindGPUVertexBuffers(
+                    render_pass,
+                    0,
+                    &SDL_GPUBufferBinding {
+                        buffer: triangle.vertex_buffer,
+                        offset: 0,
+                    },
+                    1,
+                );
+                SDL_BindGPUIndexBuffer(
+                    render_pass,
+                    &SDL_GPUBufferBinding {
+                        buffer: triangle.index_buffer,
+                        offset: 0,
+                    },
+                    SDL_GPU_INDEXELEMENTSIZE_16BIT,
+                );
+                SDL_PushGPUVertexUniformData(
+                    command_buffer,
+                    0,
+                    triangle.points.as_ptr() as *const c_void,
+                    (size_of::<Vec3>() * 3) as u32,
+                );
+                //println!("Triangle points: {:?}", triangle.points);
+                SDL_DrawGPUIndexedPrimitives(render_pass, triangle.points.len() as u32, 1, 0, 0, 0);
+            });
+        });
     });
 
     system!("draw_screen", world, &GpuApi, &Window)
         .singleton()
         .each_iter(|_it, _, (gpu_api, window)| {
             gpu_api.draw(window.0, &_it.world());
-            /* let world = _it.world(); */
-
-            /* world.entity().get::<(&Position, &Rect)>(|(position, rect)| {
-                gpu_api.draw_vertex_buffer(window.0, position, rect, (1.0, 1.0, 1.0));
-            }); */
-            let shape_1 = Shape {
-                vertices: vec![
-                    PositionColorVertex {
-                        position: Vec3 {
-                            x: 0.0,
-                            y: -1.0,
-                            z: 0.0,
-                        },
-                        color: Color {
-                            r: 255,
-                            g: 0,
-                            b: 0,
-                            a: 255,
-                        },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 {
-                            x: 0.0,
-                            y: 0.0,
-                            z: 0.0,
-                        },
-                        color: Color {
-                            r: 0,
-                            g: 255,
-                            b: 0,
-                            a: 255,
-                        },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 {
-                            x: 1.0,
-                            y: 0.0,
-                            z: 0.0,
-                        },
-                        color: Color {
-                            r: 0,
-                            g: 0,
-                            b: 255,
-                            a: 255,
-                        },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 {
-                            x: 1.0,
-                            y: -1.0,
-                            z: 0.0,
-                        },
-                        color: Color {
-                            r: 255,
-                            g: 0,
-                            b: 0,
-                            a: 255,
-                        },
-                    },
-                ],
-                indices: vec![0, 1, 2, 0, 2, 3],
-            };
-            let shape_2 = Shape {
-                vertices: vec![
-                    PositionColorVertex {
-                        position: Vec3 {
-                            x: -1.0,
-                            y: 1.0,
-                            z: 0.0,
-                        },
-                        color: Color {
-                            r: 255,
-                            g: 0,
-                            b: 0,
-                            a: 255,
-                        },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 {
-                            x: -1.0,
-                            y: 0.0,
-                            z: 0.0,
-                        },
-                        color: Color {
-                            r: 0,
-                            g: 255,
-                            b: 0,
-                            a: 255,
-                        },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 {
-                            x: 0.0,
-                            y: 0.0,
-                            z: 0.0,
-                        },
-                        color: Color {
-                            r: 0,
-                            g: 0,
-                            b: 255,
-                            a: 255,
-                        },
-                    },
-                    PositionColorVertex {
-                        position: Vec3 {
-                            x: 0.0,
-                            y: 1.0,
-                            z: 0.0,
-                        },
-                        color: Color {
-                            r: 255,
-                            g: 0,
-                            b: 0,
-                            a: 255,
-                        },
-                    },
-                ],
-                indices: vec![0, 1, 2, 0, 2, 3],
-            };
-            gpu_api.draw_vertex(vec![shape_1, shape_2]);
         });
+
+    system!("update_triangle", world, &mut Triangle).each_iter(|it, _, triangle| {
+        //triangle.rotate(10.0 * it.delta_time());
+    });
 
     //let start_time = std::time::Instant::now();
 
