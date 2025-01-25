@@ -292,10 +292,6 @@ impl Triangle {
     }
 }
 
-fn create_translation(x: f32, y: f32, z: f32) -> Mat4 {
-    Mat4::from_cols_array(&[1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., x, y, z, 1.])
-}
-
 fn main() -> Result<(), &'static str> {
     let world = World::new();
 
