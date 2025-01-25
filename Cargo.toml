@@ -1,8 +1,14 @@
 [package]
 name = "rust_sdl3"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 sdl3-sys = { version = "0.4.0+SDL3-3.2.0", features = ["build-from-source"] }
-flecs_ecs = { version = "0.1.1" }
+glam = "0.29.2"
+uuid = { version = "1.12.1", features=["v4"] }
+
+[dependencies.flecs_ecs]
+git = "https://github.com/Indra-db/Flecs-Rust.git"
+rev = "cb296d0" # main
+version = "0.1.3"
