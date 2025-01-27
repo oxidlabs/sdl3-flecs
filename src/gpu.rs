@@ -48,6 +48,15 @@ impl GpuApi {
                 panic!("Failed to claim window for GPU device: {:?}", error);
             }
 
+            SDL_SetGPUSwapchainParameters(
+                gpu_device,
+                window,
+                SDL_GPUSwapchainComposition {
+                    ..Default::default()
+                },
+                SDL_GPU_PRESENTMODE_IMMEDIATE,
+            );
+
             Self {
                 gpu_device,
                 color: (0.2, 0.3, 0.3),

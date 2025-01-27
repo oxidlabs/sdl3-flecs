@@ -1,7 +1,7 @@
 use std::{ffi::CString, ptr::null_mut};
 
 use flecs_ecs::macros::Component;
-use sdl3_sys::{ self as sdl3, properties::*, video::*};
+use sdl3_sys::{self as sdl3, properties::*, video::*};
 
 #[derive(Debug, Component)]
 pub struct Window(pub *mut SDL_Window);
@@ -37,6 +37,7 @@ impl Window {
             if window == null_mut() {
                 panic!("Failed to create window");
             }
+            //SDL_SetWindowSurfaceVSync(window, 0);
             Self(window)
         }
     }

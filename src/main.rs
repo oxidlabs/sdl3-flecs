@@ -371,13 +371,6 @@ fn main() -> Result<(), &'static str> {
         }
     });
 
-    /* observer!("init_matrix_shaders", world, ShadersInitEvent, flecs::Any).each_iter(|it, _, _| {
-        let event = &*it.param();
-        let gpu_device = event.gpu_device;
-        let window = event.window;
-        unsafe {}
-    }); */
-
     let window = Window::new("Example window", 800, 600);
     let renderer = GpuApi::new(window.0);
     renderer.init(&world, window.0);
@@ -493,8 +486,6 @@ fn main() -> Result<(), &'static str> {
         triangle.rotate(1.0 * it.delta_time());
     });
 
-    //let start_time = std::time::Instant::now();
-
     'running: loop {
         while unsafe { sdl3::events::SDL_PollEvent(&mut event) } {
             match sdl3::events::SDL_EventType(unsafe { event.r#type }) {
@@ -505,18 +496,7 @@ fn main() -> Result<(), &'static str> {
             }
         }
 
-        /* let elapsed_time = start_time.elapsed().as_secs_f32();
-
-        let red = elapsed_time.sin() * 127.0 + 128.0;
-        let green = elapsed_time.cos() * 127.0 + 128.0;
-        let blue = elapsed_time.cos() * 127.0 + 128.0; */
-
-        /* world.get::<&mut GpuApi>(|gpu_api| {
-            gpu_api.set_color((red / 255.0, green / 255.0, blue / 255.0));
-        }); */
-
         world.progress();
-        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
     unsafe {
