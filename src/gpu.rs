@@ -36,7 +36,7 @@ unsafe impl Sync for ShadersInitEvent {}
 impl GpuApi {
     pub fn new(window: *mut SDL_Window) -> Self {
         unsafe {
-            let gpu_device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_DXIL, false, null_mut());
+            let gpu_device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, null_mut());
 
             if gpu_device == null_mut() {
                 let error = CStr::from_ptr(SDL_GetError()).to_str().unwrap();
