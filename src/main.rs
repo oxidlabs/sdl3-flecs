@@ -5,20 +5,17 @@ use flecs_ecs::{
             self,
             pipeline::{OnStore, OnUpdate, PostUpdate, PreStore, PreUpdate},
         },
-        EntityView, EntityViewGet, QueryBuilderImpl, SystemAPI, TermBuilderImpl, World, WorldGet,
+        QueryBuilderImpl, SystemAPI, TermBuilderImpl, World, WorldGet,
     },
     macros::{observer, system, Component},
     prelude::*,
 };
 
 use glam::{Mat4, Vec2, Vec3};
-use gpu::{GpuApi, RenderEvent, ShadersInitEvent};
-use rand::Rng;
-use rayon::prelude::*;
+use gpu::{GpuApi, ShadersInitEvent};
 use sdl3_sys::{
     self as sdl3,
     error::SDL_GetError,
-    events::SDL_KeyboardEvent,
     gpu::*,
     iostream::SDL_LoadFile,
     pixels::{SDL_FColor, SDL_PIXELFORMAT_ABGR8888, SDL_PIXELFORMAT_UNKNOWN},
@@ -30,6 +27,7 @@ use std::{
     ffi::{c_char, c_void, CStr, CString},
     os::raw::c_int,
     ptr::null_mut,
+    time::Instant,
     u8, usize,
 };
 use window::Window;
@@ -250,7 +248,7 @@ impl SpritesBuffer {
         unsafe {
             let texture = SDL_CreateGPUTexture(
                 gpu_device,
-                &SDL_GPUTextureCreateInfo {
+                &(SDL_GPUTextureCreateInfo {
                     r#type: SDL_GPU_TEXTURETYPE_2D,
                     format: SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
                     width: (*image).w as u32,
@@ -259,12 +257,12 @@ impl SpritesBuffer {
                     num_levels: 1,
                     usage: SDL_GPU_TEXTUREUSAGE_SAMPLER,
                     ..Default::default()
-                },
+                }),
             );
 
             let sampler = SDL_CreateGPUSampler(
                 gpu_device,
-                &SDL_GPUSamplerCreateInfo {
+                &(SDL_GPUSamplerCreateInfo {
                     min_filter: SDL_GPU_FILTER_NEAREST,
                     mag_filter: SDL_GPU_FILTER_NEAREST,
                     mipmap_mode: SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
@@ -274,16 +272,16 @@ impl SpritesBuffer {
                     //enable_anisotropy: true,
                     //max_anisotropy: 4.,
                     ..Default::default()
-                },
+                }),
             );
 
             let texture_transfer_buffer = SDL_CreateGPUTransferBuffer(
                 gpu_device,
-                &SDL_GPUTransferBufferCreateInfo {
+                &(SDL_GPUTransferBufferCreateInfo {
                     usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
                     size: ((*image).w * (*image).h * 4) as u32,
                     ..Default::default()
-                },
+                }),
             );
 
             let texture_transfer_ptr =
@@ -297,20 +295,20 @@ impl SpritesBuffer {
 
             let transfer_buffer = SDL_CreateGPUTransferBuffer(
                 gpu_device,
-                &SDL_GPUTransferBufferCreateInfo {
+                &(SDL_GPUTransferBufferCreateInfo {
                     usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
                     size: (100000 * size_of::<Sprite>()) as u32,
                     ..Default::default()
-                },
+                }),
             );
 
             let data_buffer = SDL_CreateGPUBuffer(
                 gpu_device,
-                &SDL_GPUBufferCreateInfo {
+                &(SDL_GPUBufferCreateInfo {
                     usage: SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
                     size: (100000 * size_of::<Sprite>()) as u32,
                     ..Default::default()
-                },
+                }),
             );
 
             let command_buffer = SDL_AcquireGPUCommandBuffer(gpu_device);
@@ -318,18 +316,18 @@ impl SpritesBuffer {
 
             SDL_UploadToGPUTexture(
                 copy_pass,
-                &SDL_GPUTextureTransferInfo {
+                &(SDL_GPUTextureTransferInfo {
                     transfer_buffer: texture_transfer_buffer,
                     offset: 0,
                     ..Default::default()
-                },
-                &SDL_GPUTextureRegion {
+                }),
+                &(SDL_GPUTextureRegion {
                     texture,
                     w: (*image).w as u32,
                     h: (*image).h as u32,
                     d: 1,
                     ..Default::default()
-                },
+                }),
                 false,
             );
 
@@ -350,48 +348,26 @@ impl SpritesBuffer {
     }
 
     pub fn resize(&mut self, gpu_device: *mut SDL_GPUDevice) {
-        if self.count == (self.size - 10000) {
+        if self.count == self.size - 10000 {
             self.size += 50000;
             unsafe {
                 self.transfer_buffer = SDL_CreateGPUTransferBuffer(
                     gpu_device,
-                    &SDL_GPUTransferBufferCreateInfo {
+                    &(SDL_GPUTransferBufferCreateInfo {
                         usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
                         size: (self.size * size_of::<Sprite>()) as u32,
                         ..Default::default()
-                    },
+                    }),
                 );
 
-                let temp_data_buffer = SDL_CreateGPUBuffer(
+                self.data_buffer = SDL_CreateGPUBuffer(
                     gpu_device,
-                    &SDL_GPUBufferCreateInfo {
+                    &(SDL_GPUBufferCreateInfo {
                         usage: SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
                         size: (self.size * size_of::<Sprite>()) as u32,
                         ..Default::default()
-                    },
+                    }),
                 );
-
-                let command_buffer = SDL_AcquireGPUCommandBuffer(gpu_device);
-                let copy_pass = SDL_BeginGPUCopyPass(command_buffer);
-
-                SDL_CopyGPUBufferToBuffer(
-                    copy_pass,
-                    &SDL_GPUBufferLocation {
-                        buffer: self.data_buffer,
-                        offset: 0,
-                    },
-                    &SDL_GPUBufferLocation {
-                        buffer: temp_data_buffer,
-                        offset: 0,
-                    },
-                    ((self.size - 50000) * size_of::<u16>() * 6) as u32,
-                    false,
-                );
-
-                SDL_EndGPUCopyPass(copy_pass);
-                SDL_SubmitGPUCommandBuffer(command_buffer);
-
-                self.data_buffer = temp_data_buffer;
             }
         }
     }
@@ -462,10 +438,10 @@ fn main() -> Result<(), &'static str> {
             let pipeline_create_info = SDL_GPUGraphicsPipelineCreateInfo {
                 target_info: SDL_GPUGraphicsPipelineTargetInfo {
                     num_color_targets: 1,
-                    color_target_descriptions: &SDL_GPUColorTargetDescription {
+                    color_target_descriptions: &(SDL_GPUColorTargetDescription {
                         format: SDL_GetGPUSwapchainTextureFormat(gpu_device, window),
                         ..Default::default()
-                    },
+                    }),
                     ..Default::default()
                 },
                 primitive_type: SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
@@ -557,38 +533,41 @@ fn main() -> Result<(), &'static str> {
 
     system!("draw_sprites", world, &Renderer($), &SpritesBuffer($), &GpuApi($), &mut Camera($), &TexturePipeline($))
         .kind::<OnUpdate>()
-        .each_iter(
-            move |_it, _, (renderer, sprite_buffer, gpu_api, camera, pipeline)| unsafe {
-                let gpu_device = gpu_api.gpu_device;
-                let render_pass = renderer.render_pass;
-                let command_buffer = renderer.command_buffer;
+        .each_iter(move |_it, _, (renderer, sprite_buffer, gpu_api, camera, pipeline)| unsafe {
+            let gpu_device = gpu_api.gpu_device;
+            let render_pass = renderer.render_pass;
+            let command_buffer = renderer.command_buffer;
 
-                let data_ptr: *mut Sprite =
-                    SDL_MapGPUTransferBuffer(gpu_device, sprite_buffer.transfer_buffer, false)
-                        as *mut _;
+            if sprites_query.count() == 0 {
+                return;
+            }
 
-                let mut count = 0;
-                sprites_query.each(|sprite| {
-                    *data_ptr.add(count) = *sprite;
-                    count += 1;
-                });
+            let data_ptr= SDL_MapGPUTransferBuffer(
+                gpu_device,
+                sprite_buffer.transfer_buffer,
+                false
+            );
 
-                SDL_UnmapGPUTransferBuffer(gpu_device, sprite_buffer.transfer_buffer);
+            sprites_query.run(|mut it| {
+                while it.next() {
+                    let s = &it.field::<Sprite>(0).unwrap()[..];
+                    SDL_memcpy(data_ptr, s.as_ptr() as *const c_void, s.len() * size_of::<Sprite>());
 
-                if count != 0 {
+                    SDL_UnmapGPUTransferBuffer(gpu_device, sprite_buffer.transfer_buffer);
+
                     let copy_pass = SDL_BeginGPUCopyPass(command_buffer);
                     SDL_UploadToGPUBuffer(
                         copy_pass,
-                        &SDL_GPUTransferBufferLocation {
+                        &(SDL_GPUTransferBufferLocation {
                             transfer_buffer: sprite_buffer.transfer_buffer,
                             offset: 0,
-                        },
-                        &SDL_GPUBufferRegion {
+                        }),
+                        &(SDL_GPUBufferRegion {
                             buffer: sprite_buffer.data_buffer,
                             offset: 0,
-                            size: (count * size_of::<Sprite>()) as u32,
-                        },
-                        true,
+                            size: (s.len() * size_of::<Sprite>()) as u32,
+                        }),
+                        true
                     );
                     SDL_EndGPUCopyPass(copy_pass);
 
@@ -597,22 +576,22 @@ fn main() -> Result<(), &'static str> {
                     SDL_BindGPUFragmentSamplers(
                         render_pass,
                         0,
-                        &SDL_GPUTextureSamplerBinding {
+                        &(SDL_GPUTextureSamplerBinding {
                             texture: sprite_buffer.texture,
                             sampler: sprite_buffer.sampler,
-                        },
-                        1,
+                        }),
+                        1
                     );
                     SDL_PushGPUVertexUniformData(
                         command_buffer,
                         0,
                         &mut camera.0 as *mut _ as *mut c_void,
-                        size_of::<Mat4>() as u32,
+                        size_of::<Mat4>() as u32
                     );
-                    SDL_DrawGPUPrimitives(render_pass, (count * 6) as u32, 1, 0, 0);
+                    SDL_DrawGPUPrimitives(render_pass, (s.len() * 6) as u32, 1, 0, 0);
                 }
-            },
-        );
+            });
+        });
 
     system!("sprite_submit_buffer", world, &mut Renderer($))
         .kind::<PostUpdate>()
@@ -633,7 +612,7 @@ fn main() -> Result<(), &'static str> {
 
     let mut count = 0;
     'running: loop {
-        while unsafe { sdl3::events::SDL_PollEvent(&mut event) } {
+        while (unsafe { sdl3::events::SDL_PollEvent(&mut event) }) {
             match sdl3::events::SDL_EventType(unsafe { event.r#type }) {
                 sdl3::events::SDL_EventType::QUIT => {
                     break 'running;
@@ -642,7 +621,9 @@ fn main() -> Result<(), &'static str> {
             }
         }
 
-        unsafe { sdl3::events::SDL_PumpEvents() };
+        unsafe {
+            sdl3::events::SDL_PumpEvents();
+        }
 
         let mut numkeys: c_int = 0;
         let key_state_ptr = unsafe { sdl3::keyboard::SDL_GetKeyboardState(&mut numkeys) };
@@ -678,9 +659,9 @@ fn main() -> Result<(), &'static str> {
 
         if key_states[SDL_SCANCODE_P.0 as usize] {
             // For example, spawn sprites
-            count += 10000;
+            count += 100;
             world.get::<&mut SpritesBuffer>(|sprites_buffer| {
-                for _ in 0..10000 {
+                for _ in 0..100 {
                     spawn_sprite(&world, sprites_buffer);
                 }
             });
