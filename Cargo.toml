@@ -7,6 +7,8 @@ edition = "2021"
 sdl3-sys = { version = "0.4.0+SDL3-3.2.0", features = ["build-from-source"] }
 glam = "0.29.2"
 uuid = { version = "1.12.1", features=["v4"] }
+rand = "0.9.0"
+rayon = "1.10.0"
 
 [dependencies.flecs_ecs]
 git = "https://github.com/Indra-db/Flecs-Rust.git"

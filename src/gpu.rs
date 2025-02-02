@@ -64,58 +64,6 @@ impl GpuApi {
         }
     }
 
-    pub fn draw(&self, window: *mut SDL_Window, world: &World) {
-        unsafe {
-            let cmd_buf = SDL_AcquireGPUCommandBuffer(self.gpu_device);
-            if cmd_buf == null_mut() {
-                let error = CStr::from_ptr(SDL_GetError()).to_str().unwrap();
-                panic!("Failed to acquire GPU command buffer: {:?}", error);
-            }
-
-            let mut swapchain_texture: *mut SDL_GPUTexture = null_mut();
-            if !SDL_WaitAndAcquireGPUSwapchainTexture(
-                cmd_buf,
-                window,
-                &mut swapchain_texture,
-                null_mut(),
-                null_mut(),
-            ) {
-                let error = CStr::from_ptr(SDL_GetError()).to_str().unwrap();
-                panic!(
-                    "Failed to wait and acquire GPU swapchain texture: {:?}",
-                    error
-                );
-            }
-
-            if swapchain_texture != null_mut() {
-                let mut color_target_info = SDL_GPUColorTargetInfo::default();
-                color_target_info.texture = swapchain_texture;
-                color_target_info.clear_color = SDL_FColor {
-                    r: self.color.0,
-                    g: self.color.1,
-                    b: self.color.2,
-                    a: 1.0,
-                };
-                color_target_info.load_op = SDL_GPU_LOADOP_CLEAR;
-                color_target_info.store_op = SDL_GPU_STOREOP_STORE;
-
-                let render_pass =
-                    SDL_BeginGPURenderPass(cmd_buf, &color_target_info, 1, null_mut());
-
-                let render_event = RenderEvent {
-                    render_pass,
-                    command_buffer: cmd_buf,
-                };
-
-                world.event().entity(flecs::Any).emit(&render_event);
-
-                SDL_EndGPURenderPass(render_pass);
-            }
-
-            SDL_SubmitGPUCommandBuffer(cmd_buf);
-        }
-    }
-
     pub fn set_color(&mut self, color: (f32, f32, f32)) {
         self.color = color;
     }
